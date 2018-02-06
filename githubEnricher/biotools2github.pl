@@ -1,5 +1,6 @@
 #!/usr/bin/perl
 
+use v5.10.1;
 use strict;
 use warnings 'all';
 use HTTP::Request qw();
@@ -18,7 +19,10 @@ use constant GITHUB_API_ENDPOINT => 'https://api.github.com/';
 
 use constant GITHUB_IO_HOST => 'github.io';
 
+use constant GITHUB_API_V_HEADER => 'application/vnd.github.v3+json';
 
+use constant BIOTOOLS_PREFIX => 'bio.tools:';
+use constant BIOTOOLS_PREFIX_LENGTH => length(BIOTOOLS_PREFIX);
 # KeyOrder
 
 my @TabKeyOrder = (
@@ -106,12 +110,16 @@ sub matchGitHub($;$) {
 	return ($isUri,$owner,$repo);
 }
 
-sub fetchJSON($;$$$) {
-	my($bUri,$ua,$user,$token) = @_;
+sub fetchJSON($;$$$$) {
+	my($bUri,$ua,$user,$token,$p_acceptHeaders) = @_;
 	
 	$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
 	my $bUriStr = (blessed($bUri) && $bUri->can('as_string')) ? $bUri->as_string() : $bUri;
 	my $req = HTTP::Request->new('GET' => $bUriStr);
+	if(defined($p_acceptHeaders)) {
+		my $headers = $req->headers();
+		$headers->push_header(Accept => $p_acceptHeaders);
+	}
 
 print STDERR "JARL $bUriStr $user $token\n";
 	$req->authorization_basic($user,$token)  if(defined($user));
@@ -122,7 +130,8 @@ print STDERR "JARL $bUriStr $user $token\n";
 	my $bData = undef;
 	if($response->is_success()) {
 		eval {
-			$bData = JSON->new()->utf8(1)->decode($response->decoded_content);
+			$bData = JSON->new()->decode($response->decoded_content);
+			#$bData = JSON->new()->utf8(1)->decode($response->decoded_content);
 		};
 		
 		if($@) {
@@ -149,7 +158,7 @@ print STDERR "JARL $bUriStr $user $token\n";
 			my $userUri = URI->new(GITHUB_API_ENDPOINT);
 			$userUri->path_segments("","users",$username);
 			
-			my($userSuccess,$userData) = fetchJSON($userUri,$ua,$user,$token);
+			my($userSuccess,$userData) = fetchJSON($userUri,$ua,$user,$token,GITHUB_API_V_HEADER);
 			
 			$gitHubUserCache{$username} = $userData  if($userSuccess);
 			
@@ -183,7 +192,14 @@ if(scalar(@filenames) > 0 || scalar(@ARGV) > 0) {
 					next if(substr($line,0,1) eq '#');
 					chomp($line);
 					
-					push(@btIds,$line);
+					my @tokens = split(/\t/,$line);
+					
+					foreach my $token (@tokens) {
+						$token =~ s/^\s+//;
+						$token =~ s/\s+$//;
+					}
+					
+					push(@btIds,[$tokens[0],(scalar(@tokens) >= 4) ? [ split(/;/,$tokens[4]) ]: undef]);
 				}
 				
 				close($IF);
@@ -193,7 +209,7 @@ if(scalar(@filenames) > 0 || scalar(@ARGV) > 0) {
 		}
 	}
 	
-	push(@btIds, @ARGV)  if(scalar(@ARGV)>0);
+	push(@btIds, map { [$_,undef] } @ARGV)  if(scalar(@ARGV)>0);
 }
 
 print STDERR "JARL $gh_user $gh_token\n";
@@ -201,16 +217,16 @@ print STDERR "JARL $gh_user $gh_token\n";
 
 if(scalar(@btIds)>0) {
 	# Trimming spaces on the potential identifier, and splitting multiple ones
-	foreach my $biotoolsId (@btIds) {
-		$biotoolsId =~ s/^\s+//;
-		$biotoolsId =~ s/\s+$//;
-		
-		# Splitting by ;
-		my @possibleIds = split(/;/,$biotoolsId);
-		# And keeping the first one
-		if(scalar(@possibleIds)>1) {
-			$biotoolsId = shift(@possibleIds);
-			push(@btIds,@possibleIds)  if(scalar(@possibleIds)>0);
+	foreach my $p_biotoolsId (@btIds) {
+		unless(defined($p_biotoolsId->[1])) {
+			my $biotoolsId = $p_biotoolsId->[0];
+			
+			$biotoolsId =~ s/^\s+//;
+			$biotoolsId =~ s/\s+$//;
+			
+			# Splitting by ;
+			my @possibleIds = split(/;/,$biotoolsId);
+			$p_biotoolsId->[1] = \@possibleIds;
 		}
 	}
 	
@@ -233,69 +249,101 @@ if(scalar(@btIds)>0) {
 		open($TAB,'>&:encoding(UTF-8)',\*STDOUT) or die("ERROR: Unable to redirect to STDOUT: $!\n");
 	}
 	
-	print "* Processing ".scalar(@btIds)." identifiers\n";
+	print "* Processing ".scalar(@btIds)." possible identifiers\n";
 	my $ua = LWP::UserAgent->new();
 	
 	my $printedHeader = undef;
 	my $numTool = 0;
-	foreach my $biotoolsId (@btIds) {
+	foreach my $p_biotoolsId (@btIds) {
+		my($biotoolsId,$p_bIds) = @{$p_biotoolsId};
 		my @githubURIs = ();
 		
 		# Is an URI from GitHub?
-		{
-			my($isUri,$owner,$repo) = matchGitHub($biotoolsId,$ua);
+		my @otherU = ();
+		foreach my $bId (@{$p_bIds}){
+			my($isUri,$owner,$repo) = matchGitHub($bId,$ua);
 			
 			if($isUri) {
-				if(defined($owner) && defined($repo)) {
-					push(@githubURIs, [$owner,$repo,$biotoolsId]);
-				} else {
-					print STDERR "Unrecognized URI $biotoolsId . Skipping\n";
-					next;
+				unless(defined($owner) && defined($repo)) {
+					print STDERR "Unrecognized GitHub URI $biotoolsId . Skipping\n";
+					$owner = undef;
+					$repo = 1;
 				}
 			}
-		};
+			
+			if(defined($owner)) {
+				push(@githubURIs, [$owner,$repo,$bId]);
+			} else {
+				push(@otherU, $bId);
+			}
+		}
 		
 		# Let's suppose it is a biotoolsId
 		if(scalar(@githubURIs)==0) {
-			my $bUri = URI->new_abs($biotoolsId,BIOTOOLS_ENDPOINT);
-			$bUri->query_form('format'=>'json');
-			
-			my($netSuccess,$bData) = fetchJSON($bUri,$ua);
-			if($netSuccess) {
-				if(defined($bData)) {
-					if(exists($bData->{'link'}) && ref($bData->{'link'}) eq 'ARRAY') {
-						# Iterate over all the possible links
-						foreach my $link (@{$bData->{'link'}}) {
-							my($isUri,$owner,$repo) = matchGitHub($link->{'url'},$ua);
-							
-							if($isUri && defined($owner) && defined($repo)) {
-								push(@githubURIs, [$owner,$repo,$biotoolsId]);
-							}
-						}
-					}
-				} else {
-					print STDERR "ERROR: JSON parsing error\n";
+			foreach my $btId (@otherU){
+				my $bId = $btId;
+				if(substr($bId,0,BIOTOOLS_PREFIX_LENGTH) eq BIOTOOLS_PREFIX) {
+					$bId = substr($bId,BIOTOOLS_PREFIX_LENGTH);
 				}
+				
+				my $uBtId = URI->new($bId);
+				unless(defined($uBtId->scheme())) {
+					my $bUri = URI->new_abs($btId,BIOTOOLS_ENDPOINT);
+					$bUri->query_form('format'=>'json');
+					
+					my($netSuccess,$bData) = fetchJSON($bUri,$ua);
+					if($netSuccess) {
+						if(defined($bData)) {
+							if(exists($bData->{'link'}) && ref($bData->{'link'}) eq 'ARRAY') {
+								# Iterate over all the possible links
+								foreach my $link (@{$bData->{'link'}}) {
+									my($isUri,$owner,$repo) = matchGitHub($link->{'url'},$ua);
+									
+									if($isUri && defined($owner) && defined($repo)) {
+										push(@githubURIs, [$owner,$repo,$btId]);
+									}
+								}
+							}
+						} else {
+							print STDERR "ERROR: JSON parsing error\n";
+						}
+					} else {
+						print STDERR "ERROR: Unable to get record $biotoolsId from bio.tools. Does it exist?\n";
+					}
+				}
+			}
+		}
+		
+		# Consolidation
+		my @uniqGH = ();
+		my %oCache = ();
+		foreach my $p_githubURI (@githubURIs) {
+			my($owner,$repo,$btId) = @{$p_githubURI};
+			if(exists($oCache{$owner}) && exists($oCache{$owner}{$repo})) {
+				push(@{$oCache{$owner}{$repo}},$btId)  unless($btId ~~ @{$oCache{$owner}{$repo}});
 			} else {
-				print STDERR "ERROR: Unable to get record $biotoolsId from bio.tools. Does it exist?\n";
+				my $p_btIds = $oCache{$owner}{$repo} = [$btId];
+				
+				push(@uniqGH,[$owner,$repo,$p_btIds]);
 			}
 		}
 		
 		# Now, let's work with the GitHub API
 		my $p_mani = $manifest{$biotoolsId} = [];
-		foreach my $repoData (@githubURIs) {
-			my($owner,$repo,$biotoolsId) = @{$repoData};
+		foreach my $repoData (@uniqGH) {
+			my($owner,$repo,$p_btIds) = @{$repoData};
 			
 			# What we now, just now
 			my %ans = (
-				'tool_id'	=>	$biotoolsId
+				'tool_id'	=>	$biotoolsId,
+				'query_id'	=>	$p_btIds
 			);
 			
 			# These are all the URIs the program needs to fetch from GitHub
 			
 			my $repoUri = URI->new(GITHUB_API_ENDPOINT);
 			$repoUri->path_segments("","repos",$owner,$repo);
-			my($repoSuccess,$repoData) = fetchJSON($repoUri,$ua,$gh_user,$gh_token);
+			my($repoSuccess,$repoData) = fetchJSON($repoUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			if($repoSuccess) {
 				if(exists($repoData->{'clone_url'}) && defined($repoData->{'clone_url'})) {
 					$ans{'vcs_type'} = 'git';
@@ -358,7 +406,7 @@ if(scalar(@btIds)>0) {
 			
 			my $releasesUri = URI->new(GITHUB_API_ENDPOINT);
 			$releasesUri->path_segments("","repos",$owner,$repo,'releases');
-			my($releasesSuccess,$releasesData) = fetchJSON($releasesUri,$ua,$gh_user,$gh_token);
+			my($releasesSuccess,$releasesData) = fetchJSON($releasesUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			if($releasesSuccess) {
 				# Versions
 				foreach my $release (@{$releasesData}) {
@@ -381,7 +429,7 @@ if(scalar(@btIds)>0) {
 			
 			my $tagsUri = URI->new(GITHUB_API_ENDPOINT);
 			$tagsUri->path_segments("","repos",$owner,$repo,'tags');
-			my($tagsSuccess,$tagsData) = fetchJSON($tagsUri,$ua,$gh_user,$gh_token);
+			my($tagsSuccess,$tagsData) = fetchJSON($tagsUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			if($tagsSuccess) {
 				# Versions
 				foreach my $tag (@{$tagsData}) {
@@ -395,7 +443,7 @@ if(scalar(@btIds)>0) {
 			
 			my $langsUri = URI->new(GITHUB_API_ENDPOINT);
 			$langsUri->path_segments("","repos",$owner,$repo,'languages');
-			my($langsSuccess,$langsData) = fetchJSON($langsUri,$ua,$gh_user,$gh_token);
+			my($langsSuccess,$langsData) = fetchJSON($langsUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			if($langsSuccess) {
 				# 'type'
 				foreach my $lang (keys(%recognizedBuildSystemsByLang)) {
@@ -411,7 +459,7 @@ if(scalar(@btIds)>0) {
 			
 			my $contrUri = URI->new(GITHUB_API_ENDPOINT);
 			$contrUri->path_segments("","repos",$owner,$repo,'contributors');
-			my($contrSuccess,$contrData) = fetchJSON($contrUri,$ua,$gh_user,$gh_token);
+			my($contrSuccess,$contrData) = fetchJSON($contrUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			if($contrSuccess) {
 				# credits
 				foreach my $contributor (@{$contrData}) {
@@ -433,7 +481,7 @@ if(scalar(@btIds)>0) {
 			
 			my $licUri = URI->new(GITHUB_API_ENDPOINT);
 			$licUri->path_segments("","repos",$owner,$repo,'license');
-			my($licSuccess,$licData) = fetchJSON($licUri,$ua,$gh_user,$gh_token);
+			my($licSuccess,$licData) = fetchJSON($licUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			if($licSuccess) {
 				if(exists($licData->{'_links'}{'html'})) {
 					# project license
@@ -462,7 +510,7 @@ if(scalar(@btIds)>0) {
 			
 			#my $pullsUri = URI->new(GITHUB_API_ENDPOINT);
 			#$pullsUri->path_segments("","repos",$owner,$repo,'pulls');
-			#my($pullsSuccess,$pullsData) = fetchJSON($pullsUri,$ua,$gh_user,$gh_token);
+			#my($pullsSuccess,$pullsData) = fetchJSON($pullsUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			#if($pullsSuccess) {
 			#	use Data::Dumper;
 			#	print Dumper($pullsData),"\n";
@@ -471,7 +519,7 @@ if(scalar(@btIds)>0) {
 			#
 			#my $issueUri = URI->new(GITHUB_API_ENDPOINT);
 			#$issueUri->path_segments("","repos",$owner,$repo,'issues');
-			#my($issueSuccess,$issueData) = fetchJSON($issueUri,$ua,$gh_user,$gh_token);
+			#my($issueSuccess,$issueData) = fetchJSON($issueUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 			#if($issueSuccess) {
 			#	use Data::Dumper;
 			#	print Dumper($issueData),"\n";
