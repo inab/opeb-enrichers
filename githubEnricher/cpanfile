@@ -1,0 +1,7 @@
+require LWP;
+require JSON::MaybeXS;
+require URI;
+require Scalar::Util;
+require Getopt::Long;
+require File::Path;
+require File::Spec;
