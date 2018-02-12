@@ -40,6 +40,10 @@ class PubEnricher:
 
 	def __init__(self,cache_dir="."):
 		self.cache_dir = cache_dir
+		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
+		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
+		#self._debug_count = 0
+		
 		self.cache_file = os.path.join(cache_dir,PubEnricher.DEFAULT_CACHE_FILE)
 		self.cache_ids_file = os.path.join(cache_dir,PubEnricher.DEFAULT_CACHE_PUB_IDS_FILE)
 
@@ -148,7 +152,7 @@ class PubEnricher:
 						if mapping['pmid'] is not None:
 							p2e[mapping['pmid']] = mapping
 					else:
-						doi_ids.append('DOI:'+doi_id)
+						doi_ids.append('DOI:"'+doi_id+'"')
 		
 		pub_ids.extend(doi_ids)
 
@@ -160,7 +164,13 @@ class PubEnricher:
 					'query': ' or '.join(pub_ids)
 				}
 				with request.urlopen(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')) as entriesConn:
-					pubs_mappings = json.loads(entriesConn.read().decode('utf-8'))
+					raw_json_pubs_mappings = entriesConn.read()
+					#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
+					#self._debug_count += 1
+					#with open(debug_cache_filename,mode="wb") as d:
+					#	d.write(raw_json_pubs_mappings)
+					
+					pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
 
 					if 'resultList' in pubs_mappings:
 						resultList = pubs_mappings['resultList']
