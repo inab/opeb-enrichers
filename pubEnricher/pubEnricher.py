@@ -10,6 +10,8 @@ import time
 import math
 import shelve
 
+import argparse
+
 # Next method is used to label methods as deprecated
 
 import warnings
@@ -274,7 +276,7 @@ class PubEnricher:
 	#Url used to retrive the citations, i.e MED is publications from PubMed and MEDLINE view https://europepmc.org/RestfulWebService;jsessionid=7AD7C81CF5F041840F59CF49ABB29994#cites
 	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/"
 
-	def reconcileCitationMetricsBatch(self,entries):
+	def reconcileCitationMetricsBatch(self,entries,digestStats=True):
 		"""
 			This method takes in batches of entries and retrives citations from ids
 			hitCount: number of times cited
@@ -328,7 +330,18 @@ class PubEnricher:
 								print(anyEx,file=sys.stderr)
 						
 						pub_field['citation_count'] = citations_count
-						pub_field['citations'] = citations
+						if digestStats:
+							# Computing the stats
+							citation_stats = {}
+							for citation in citations:
+								year = citation['pubYear']
+								if year in citation_stats:
+									citation_stats[year] += 1
+								else:
+									citation_stats[year] = 1
+							pub_field['citation_stats'] = citation_stats
+						else:
+							pub_field['citations'] = citations
 
 		# print(json.dumps(entry, indent=4))
 
@@ -336,7 +349,7 @@ class PubEnricher:
 
 
 
-	def reconcilePubIds(self,entries,step_size=DEFAULT_STEP_SIZE):
+	def reconcilePubIds(self,entries,digestStats=True,step_size=DEFAULT_STEP_SIZE):
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
@@ -347,7 +360,7 @@ class PubEnricher:
 
 		for start in range(0,len(entries),step_size):
 			self.reconcilePubIdsBatch(entries[start:(start+step_size)],step_size)
-			self.reconcileCitationMetricsBatch(entries[start:(start+step_size)])
+			self.reconcileCitationMetricsBatch(entries[start:(start+step_size)],digestStats)
 		return entries
 
 
@@ -436,21 +449,25 @@ def reconcileDOIIdsBatch(doi_ids,batch_size=PubEnricher.DEFAULT_STEP_SIZE):
 #######################################
 
 if __name__ == "__main__":
-	if len(sys.argv) > 2:
-		output_file = sys.argv[1]
-		cache_dir = sys.argv[2]
-		# Creating the cache directory, in case it does not exist
-		os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
-		with PubEnricher(cache_dir) as pub:
-			# Step 1: fetch the entries with associated pubmed
-			fetchedEntries = pub.fetchPubIds()
+	parser = argparse.ArgumentParser()
+	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="store_true")
+	parser.add_argument("results_file", help="The results file, in JSON format")
+	parser.add_argument("cacheDir", help="The optional cache directory, to be reused", nargs="?", default=os.path.join(os.getcwd(),"cacheDir"))
+	args = parser.parse_args()
+	
+	# Now, let's work!
+	output_file = args.results_file
+	cache_dir = args.cacheDir  
+	# Creating the cache directory, in case it does not exist
+	os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
+	with PubEnricher(cache_dir) as pub:
+		# Step 1: fetch the entries with associated pubmed
+		fetchedEntries = pub.fetchPubIds()
 
-			# Step 2: reconcile the DOI <-> PubMed id of the entries
-			entries = pub.reconcilePubIds(fetchedEntries)
+		# Step 2: reconcile the DOI <-> PubMed id of the entries
+		entries = pub.reconcilePubIds(fetchedEntries,not args.full)
 
-			#print(len(fetchedEntries))
-			#print(json.dumps(fetchedEntries,indent=4))
-			with open(output_file,mode="w",encoding="utf-8") as o:
-				json.dump(entries,o,indent=4)
-	else:
-		print("Usage: {0} results_file cacheDir\n".format(sys.argv[0]),file=sys.stderr)
+		#print(len(fetchedEntries))
+		#print(json.dumps(fetchedEntries,indent=4))
+		with open(output_file,mode="w",encoding="utf-8") as o:
+			json.dump(entries,o,indent=4)
