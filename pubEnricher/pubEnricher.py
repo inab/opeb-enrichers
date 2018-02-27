@@ -17,6 +17,8 @@ import argparse
 import warnings
 import functools
 
+from typing import overload, Tuple, List, Dict, Any
+
 def deprecated(func):
     """This is a decorator which can be used to mark functions
     as deprecated. It will result in a warning being emitted
@@ -35,59 +37,51 @@ def deprecated(func):
 # Main code #
 #############
 
-class PubEnricher:
-	OPENEBENCH_SOURCE="https://openebench.bsc.es/monitor/rest/search?projection=publications"
-	DEFAULT_CACHE_FILE="pubEnricher.shelve"
-	DEFAULT_CACHE_PUB_IDS_FILE="pubEnricherIds.shelve"
+def doi2curie(doi_id):
+	return 'doi:'+doi_id
 
-	def __init__(self,cache_dir="."):
-		self.cache_dir = cache_dir
-		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
-		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
-		#self._debug_count = 0
-		
-		self.cache_file = os.path.join(cache_dir,PubEnricher.DEFAULT_CACHE_FILE)
-		self.cache_ids_file = os.path.join(cache_dir,PubEnricher.DEFAULT_CACHE_PUB_IDS_FILE)
+def pmid2curie(pubmed_id):
+	return 'pmid:'+str(pubmed_id)
 
-	def __enter__(self):
-		self.cache = shelve.open(self.cache_file)
-		self.cache_ids = shelve.open(self.cache_ids_file)
-		return self
+def pmcid2curie(pmc_id):
+	return 'pmc:'+str(pmc_id)
 
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		self.cache.close()
-		self.cache_ids.close()
+def doi_norm(doi_id):
+	return doi_id.upper()
 
-	def parseOpenEBench(self,entries):
+class OpenEBenchQueries:
+	OPENEBENCH_SOURCE ="https://openebench.bsc.es/monitor/rest/search?projection=publications"
+	OPEB_PUB_FIELDS = ( 'pmid' , 'doi' , 'pmcid' )
+	
+	def __init__(self):
+		pass
+	
+	def parseOpenEBench(self,entries:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		"""
 			This method takes as input a list of entries fetched from OpenEBench,
 			and it returns a a list of dictionaries, whose keys are
 			- id (entry id)
-			- pubmed_ids
-			- doi_ids
+			- entry_pubs
 		"""
 		trimmedEntries = []
 		for entry in entries:
-			pubmed_ids = []
-			doi_ids = []
-			pubs = []
+			entry_pubs = []
 			for pub in entry['publications']:
 				if pub is not None:
-					if 'pmid' in pub and pub['pmid'] is not None:
-						pubmed_ids.append(pub['pmid'])
-					if 'doi' in pub and pub['doi'] is not None:
-						doi_ids.append(pub['doi'])
-			if len(pubmed_ids) > 0 or len(doi_ids) > 0:
+					filtered_pub = { field: pub[field] for field in filter(lambda field: field in pub, self.OPEB_PUB_FIELDS)}
+					if len(filtered_pub) > 0:
+						entry_pubs.append(filtered_pub)
+			
+			if len(entry_pubs) > 0:
 				trimmedEntries.append({
-					'id': entry['@id'],
-					'pubmed_ids': pubmed_ids,
-					'doi_ids': doi_ids,
-					'pubs': pubs
+					'@id': entry['@id'],
+					'entry_pubs': entry_pubs,
+					'pubs': []
 				})
-
+		
 		return trimmedEntries
-
-	def fetchPubIds(self,sourceURL=OPENEBENCH_SOURCE):
+	
+	def fetchPubIds(self,sourceURL:str=OPENEBENCH_SOURCE) -> List[Dict[str,Any]]:
 		"""
 			This method fetches from OpenEBench the list of publications for each
 			entry, and it returns a list of dictionaries, whose keys are
@@ -110,11 +104,101 @@ class PubEnricher:
 			print("Something unexpected happened",file=sys.stderr)
 			print(anyEx,file=sys.stderr)
 
+class PubCache:
+	"""
+		The publications cache management code
+		Currently, it stores the correspondence among PMIDs,
+		PMC ids, DOIs and the internal identifier in the
+		original source.
+		Also, it stores the title, etc..
+		Also, it stores the citations fetched from the original source
+	"""
+	DEFAULT_CACHE_CITATIONS_FILE="pubEnricherCits.shelve"
+	DEFAULT_CACHE_PUB_IDS_FILE="pubEnricherIds.shelve"
+	DEFAULT_CACHE_PUB_IDMAPS_FILE="pubEnricherIdMaps.shelve"
+
+	def __init__(self,cache_dir:str="."):
+		self.cache_dir = cache_dir
+		
+		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
+		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
+		#self._debug_count = 0
+		
+		self.cache_citations_file = os.path.join(cache_dir,PubCache.DEFAULT_CACHE_CITATIONS_FILE)
+		self.cache_ids_file = os.path.join(cache_dir,PubCache.DEFAULT_CACHE_PUB_IDS_FILE)
+		self.cache_idmaps_file = os.path.join(cache_dir,PubCache.DEFAULT_CACHE_PUB_IDMAPS_FILE)
+	
+	def __enter__(self):
+		self.cache_citations = shelve.open(self.cache_citations_file)
+		self.cache_ids = shelve.open(self.cache_ids_file)
+		self.cache_idmaps = shelve.open(self.cache_idmaps_file)
+		return self
+	
+	def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+		self.cache_citations.close()
+		self.cache_ids.close()
+		self.cache_idmaps.close()
+	
+	
+	def getCitationsAndCount(self,source_id:str,_id:str) -> Tuple[List[Dict[str,Any]],int]:
+		refId = source_id+':'+_id
+		citations,citations_count = self.cache_citations.get(refId,(None,None))
+		
+		return citations,citations_count
+	
+	def setCitationsAndCount(self,source_id:str,_id:str,citations:List[Dict[str,Any]],citations_count:int) -> None:
+		refId = source_id+':'+_id
+		self.cache_citations[refId] = (citations,citations_count)
+	
+	def getCachedMapping(self,source_id:str,_id:str) -> Dict[str,Any]:
+		refId = source_id+':'+_id
+		return self.cache_idmaps.get(refId)
+	
+	def setCachedMapping(self,source_id:str,_id:str,mapping:Dict[str,Any]) -> None:
+		refId = source_id+':'+_id
+		self.cache_idmaps[refId] = mapping
+	
+	def getSourceIds(self,publish_id:str) -> List[str]:
+		return self.cache_ids.get(publish_id)
+	
+	def appendSourceId(self,publish_id:str,source_id:str,_id:str):
+		internal_ids = self.cache_ids.get(publish_id,[])
+		internal_ids.append((source_id,_id))
+		self.cache_ids[publish_id] = internal_ids
+
+class PubEnricher:
+	@overload
+	def __init__(self,cache:str="."):
+		...
+	
+	@overload
+	def __init__(self,cache:PubCache):
+		...
+	
+	def __init__(self,cache):
+		if type(cache) is str:
+			self.cache_dir = cache
+			self.pubC = PubCache(self.cache_dir)
+		else:
+			self.pubC = cache
+			self.cache_dir = cache.cache_dir
+		
+		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
+		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
+		#self._debug_count = 0
+	
+	def __enter__(self):
+		self.pubC.__enter__()
+		return self
+	
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self.pubC.__exit__(exc_type, exc_val, exc_tb)
+	
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
 	DEFAULT_STEP_SIZE = 50
 	OPENPMC_SEARCH_URL = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search'
-	def reconcilePubIdsBatch(self,entries,batch_size):
+	def reconcilePubIdsBatch(self,entries:List[Any],batch_size:int):
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
@@ -128,80 +212,114 @@ class PubEnricher:
 		# on the server side
 		
 		p2e = {}
+		pmc2e = {}
 		d2e = {}
 		pubmed_pairs = []
 		
-		pub_ids = []
-		for sublist in map(lambda entry: entry['pubmed_ids'],entries):
-			for pubmed_id in sublist:
-				if pubmed_id in self.cache_ids:
-					mapping = self.cache_ids[pubmed_id]
+		def _updateCaches(publish_id):
+			internal_ids = self.pubC.getSourceIds(publish_id)
+			if internal_ids is not None:
+				for source_id,_id in internal_ids:
+					mapping = self.pubC.getCachedMapping(source_id,_id)
 					pubmed_pairs.append(mapping)
-					p2e[pubmed_id] = mapping
-					if mapping['doi'] is not None:
-						d2e[mapping['doi'].upper()] = mapping
-				else:
-					pub_ids.append(pubmed_id)
+					
+					source_id = mapping['source']
+					
+					pubmed_id = mapping.get('pmid')
+					if pubmed_id is not None:
+						p2e.setdefault(pubmed_id,{})[source_id] = mapping
+					
+					doi_id = mapping.get('doi')
+					if doi_id is not None:
+						doi_id_norm = doi_norm(doi_id)
+						d2e.setdefault(doi_id_norm,{})[source_id] = mapping
+					
+					pmc_id = mapping.get('pmcid')
+					if pmc_id is not None:
+						pmc2e.setdefault(pmc_id,{})[source_id] = mapping
+				
+				return True
+			else:
+				return False
 		
-		doi_ids = []
-		for sublist in map(lambda entry: entry['doi_ids'],entries):
-			for doi_id in sublist:
-				if doi_id not in d2e:
-					if doi_id.upper() in self.cache_ids:
-						mapping = self.cache_ids[doi_id.upper()]
-						pubmed_pairs.append(mapping)
-						d2e[doi_id.upper()] = mapping
-						if mapping['pmid'] is not None:
-							p2e[mapping['pmid']] = mapping
-					else:
-						doi_ids.append('DOI:"'+doi_id+'"')
+		# Preparing the query ids
+		query_ids = []
 		
-		pub_ids.extend(doi_ids)
-
-		if len(pub_ids) > 0:
+		for entry_pubs in map(lambda entry: entry['entry_pubs'],entries):
+			for entry_pub in entry_pubs:
+				# This loop avoid resolving twice
+				pubmed_id = entry_pub.get('pmid')
+				if pubmed_id is not None and pubmed_id not in p2e:
+					if not _updateCaches(pubmed_id):
+						query_ids.append('EXT_ID:'+pubmed_id)
+				
+				doi_id = entry_pub.get('doi')
+				if doi_id is not None:
+					doi_id_norm = doi_norm(doi_id)
+					if doi_id_norm not in d2e and not _updateCaches(doi_id_norm):
+						query_ids.append('DOI:"'+doi_id_norm+'"')
+				
+				pmc_id = entry_pub.get('pmcid')
+				if pmc_id is not None and pmc_id not in pmc2e:
+					if not _updateCaches(pmc_id):
+						query_ids.append('PMCID:'+pmc_id)
+		
+		# Now, with the unknown ones, let's ask the server
+		if len(query_ids) > 0:
 			try:
 				theQuery = {
 					'format': 'json',
 					'pageSize': 1000,
-					'query': ' or '.join(pub_ids)
+					'query': ' or '.join(query_ids)
 				}
 				with request.urlopen(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')) as entriesConn:
 					raw_json_pubs_mappings = entriesConn.read()
+					
 					#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
 					#self._debug_count += 1
 					#with open(debug_cache_filename,mode="wb") as d:
 					#	d.write(raw_json_pubs_mappings)
 					
 					pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
-
-					if 'resultList' in pubs_mappings:
-						resultList = pubs_mappings['resultList']
-						if 'result' in resultList:
-							# Gathering results
-							for result in resultList['result']:
-								pubmed_id = None
-								doi_id = None
-								if 'pmid' in result:
-									pubmed_id = result['pmid']
-								if 'doi' in result:
-									doi_id = result['doi']
+					
+					resultList = pubs_mappings.get('resultList')
+					if resultList is not None and 'result' in resultList:
+						# Gathering results
+						for result in resultList['result']:
+							_id = result['id']
+							pubmed_id = result.get('pmid')
+							doi_id = result.get('doi')
+							pmc_id = result.get('pmcid')
+							source_id = result.get('source')
+							
+							if pubmed_id is not None or doi_id is not None or pmc_id is not None:
+								europepmc_id = source_id + ':' + _id
 								mapping = {
-									'id': result['id'],
+									'id': _id,
+									'title': result['title'],
+									'journal': result.get('journalTitle'),
+									'source': source_id,
+									'year': result['pubYear'],
 									'pmid': pubmed_id,
-									'doi': doi_id
+									'doi': doi_id,
+									'pmcid': pmc_id
 								}
 								
 								# Cache management
-								if pubmed_id is not None and pubmed_id not in self.cache_ids:
-									self.cache_ids[pubmed_id] = mapping
-								
-								if doi_id is not None and doi_id.upper() not in self.cache_ids:
-									self.cache_ids[doi_id.upper()] = mapping
-									
+								self.pubC.setCachedMapping(source_id,_id,mapping)
 								if pubmed_id is not None:
-									p2e[pubmed_id] = mapping
+									p2e.setdefault(pubmed_id,{})[source_id] = mapping
+									self.pubC.appendSourceId(pubmed_id,source_id,_id)
+								
+								if pmc_id is not None:
+									pmc2e.setdefault(pmc_id,{})[source_id] = mapping
+									self.pubC.appendSourceId(pmc_id,source_id,_id)
+								
 								if doi_id is not None:
-									d2e[doi_id.upper()] = mapping
+									doi_id_norm = doi_norm(doi_id)
+									d2e.setdefault(doi_id_norm,{})[source_id] = mapping
+									self.pubC.appendSourceId(doi_id_norm,source_id,_id)
+								
 								pubmed_pairs.append(mapping)
 					
 					time.sleep(0.25)
@@ -215,57 +333,114 @@ class PubEnricher:
 		
 		# Reconciliation and checking missing ones
 		for entry in entries:
-			pubmed_set = set(entry['pubmed_ids'])
-			doi_set = set(map(lambda doi: doi.upper(), entry['doi_ids']))
-
-			for pubmed_id  in entry['pubmed_ids']:
-				if pubmed_id in p2e:
-					result = p2e[pubmed_id]
-					pubmed_set.discard(pubmed_id)
-					if result['doi'] is not None:
-						doi_set.discard(result['doi'].upper())
-					entry['pubs'].append(result)
-
-			copy_doi_set = doi_set.copy()
-			for doi_id in copy_doi_set:
-				if doi_id.upper() in d2e:
-					result = d2e[doi_id.upper()]
-					doi_set.discard(result['doi'].upper())
-					if result['pmid'] is not None:
-						pubmed_set.discard(result['pmid'])
+			for entry_pub in entry['entry_pubs']:
+				broken_curie_ids = []
+				initial_curie_ids = []
+				
+				results = []
+				pubmed_id = entry_pub.get('pmid')
+				if pubmed_id is not None:
+					curie_id = pmid2curie(pubmed_id)
+					initial_curie_ids.append(curie_id)
+					if pubmed_id in p2e:
+						results.append(p2e[pubmed_id])
+					else:
+						curie_id = pmid2curie(pubmed_id)
+						broken_curie_ids.append(curie_id)
+				
+				doi_id = entry_pub.get('doi')
+				if doi_id is not None:
+					curie_id = doi2curie(doi_id)
+					initial_curie_ids.append(curie_id)
+					doi_id_norm = doi_norm(doi_id)
+					if doi_id_norm in d2e:
+						results.append(d2e[doi_id_norm])
+					else:
+						curie_id = doi2curie(doi_id)
+						broken_curie_ids.append(curie_id)
+				
+				pmc_id = entry_pub.get('pmcid')
+				if pmc_id is not None:
+					curie_id = pmcid2curie(pmc_id)
+					initial_curie_ids.append(curie_id)
+					if pmc_id in pmc2e:
+						results.append(pmc2e[pmc_id])
+					else:
+						curie_id = pmcid2curie(pmc_id)
+						broken_curie_ids.append(curie_id)
+				
+				# Checking all the entries at once
+				winner_set = None
+				notFound = len(results) == 0
+				for result in results:
+					if winner_set is None:
+						winner_set = result
+					elif winner_set != result:
+						winner = None
+						break
+				
+				winners = []
+				if winner_set is not None:
+					for winner in iter(winner_set.values()):
+						# Duplicating in order to augment it
+						new_winner = dict(winner)
+						
+						curie_ids = []
+						
+						pubmed_id = new_winner.get('pmid')
+						if pubmed_id is not None:
+							curie_id = pmid2curie(pubmed_id)
+							curie_ids.append(curie_id)
+						
+						doi_id = new_winner.get('doi')
+						if doi_id is not None:
+							curie_id = doi2curie(doi_id)
+							curie_ids.append(curie_id)
+						
+						pmc_id = new_winner.get('pmcid')
+						if pmc_id is not None:
+							curie_id = pmcid2curie(pmc_id)
+							curie_ids.append(curie_id)
+						
+						new_winner['curie_ids'] = curie_ids
+						new_winner['broken_curie_ids'] = broken_curie_ids
+						winners.append(new_winner)
+				else:
+					broken_winner = {
+						'id': None,
+						'source': None,
+						'curie_ids': initial_curie_ids,
+						'broken_curie_ids': broken_curie_ids,
+						'pmid': pubmed_id,
+						'doi': doi_id,
+						'pmcid': pmc_id
+					}
+					# No possible result
+					if notFound:
+						broken_winner['notFound'] = True
+					# There were mismatches
+					else:
+						broken_winner['mismatch'] = True
 					
-					entry['pubs'].append(result)
-			# Now, pubmed_set and doi_set contains the missing ids
-			for pubmed_id in pubmed_set:
-				entry['pubs'].append({
-					'id': None,
-					'pmid': pubmed_id,
-					'doi': None
-				})
-
-			for doi_id in doi_set:
-				entry['pubs'].append({
-					'id': None,
-					'pmid': None,
-					'doi': doi_id
-				})
-
+					winners.append(broken_winner)
+				
+				entry['pubs'].extend(winners)
+	
 	def parseCiteList(self,cite_res):
 		"""
 			iterates over the citation list and keeps only fields from the the fields
 			list specified below
 		"""
 		fields = ['id','source','pubYear','journalAbbreviation']
+		filtered_cites = [ ]
 		if 'citationList' in cite_res:
 			if 'citation' in cite_res['citationList']:
 				cite_list = cite_res['citationList']['citation']
 				for cite in cite_list:
-					for key in list(cite):
-						if key in fields:
-							pass
-						else:
-							del cite[key]
-		return cite_list
+					filtered_cite = { field: cite[field] for field in filter(lambda field: field in cite , fields) }
+					
+					filtered_cites.append(filtered_cite)
+		return filtered_cites
 
 
 
@@ -274,7 +449,7 @@ class PubEnricher:
 
 	# Documentation at: https://europepmc.org/RestfulWebService#cites
 	#Url used to retrive the citations, i.e MED is publications from PubMed and MEDLINE view https://europepmc.org/RestfulWebService;jsessionid=7AD7C81CF5F041840F59CF49ABB29994#cites
-	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/"
+	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
 
 	def reconcileCitationMetricsBatch(self,entries,digestStats=True):
 		"""
@@ -291,42 +466,61 @@ class PubEnricher:
 			if entry['pubs'] is not None:
 				for pub_field in entry['pubs']:
 					if pub_field['id'] is not None:
+						source_id = pub_field['source']
 						_id = pub_field['id'] #11932250
-						citations = None
-						citations_cache_id = 'c'+str(_id)
-						citations_count = None
-						citations_count_cache_id = 'cc'+str(_id)
-						if citations_cache_id in self.cache and citations_count_cache_id in self.cache:
-							citations = self.cache[citations_cache_id]
-							citations_count = self.cache[citations_count_cache_id]
-						else:
-							page = 1
+						
+						citations, citations_count = self.pubC.getCitationsAndCount(source_id,_id)
+						
+						if citations is None or citations_count is None:
 							pageSize = 1000
 							_format = "json"
 							query = "citations"
 
 							try:
-								with request.urlopen(self.CITATION_URL+str(_id)+"/citations/"+str(page)+"/"+str(pageSize)+"/"+str(_format)) as entriesConn:
-									cite_res = json.loads(entriesConn.read().decode('utf-8'))
-									if 'hitCount' in cite_res:
-										citations_count = cite_res['hitCount']
-										if citations_count == 0 :
-											citations = []
-										else:
-											citations = self.parseCiteList(cite_res)
-											if citations_count > pageSize:
-												pages = math.ceil(citations_count/pageSize)+page
-												for i in range(2,pages):
-													with request.urlopen(self.CITATION_URL+str(_id)+"/citations/"+str(i)+"/"+str(pageSize)+"/"+str(_format)) as entriesConn:
-														cite_res = json.loads(entriesConn.read().decode('utf-8'))
-														citations.extend(self.parseCiteList(cite_res))
+								page = 1
+								citations_count = None
+								pages = None
+								citations = []
+								while page > 0:
+									partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,"citations",page,pageSize,_format]))
+									with request.urlopen(parse.urljoin(self.CITATION_URL,partialURL)) as entriesConn:
+										raw_json_citations = entriesConn.read()
 										
-										self.cache[citations_count_cache_id] = citations_count
-										self.cache[citations_cache_id] = citations
-									# Avoiding to be banned
-									time.sleep(0.25)
+										#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
+										#self._debug_count += 1
+										#with open(debug_cache_filename,mode="wb") as d:
+										#	d.write(raw_json_citations)
+										
+										cite_res = json.loads(raw_json_citations.decode('utf-8'))
+										if citations_count is None:
+											citations_count = 0
+											if 'hitCount' in cite_res:
+												citations_count = cite_res['hitCount']
+											
+											if citations_count == 0 :
+												page = 0
+												pages = 0
+											else:
+												pages = math.ceil(citations_count/pageSize)
+											
+										citations.extend(self.parseCiteList(cite_res))
+										
+										if page < pages:
+											page += 1
+											# Avoiding to be banned
+											time.sleep(0.25)
+										else:
+											page = 0
+										
+								self.pubC.setCitationsAndCount(source_id,_id,citations,citations_count)
+								
+								#debug_cache_filename = os.path.join(self.debug_cache_dir,'parsedcite_' + str(self._debug_count) + '.json')
+								#self._debug_count += 1
+								#with open(debug_cache_filename,mode="w",encoding="utf-8") as d:
+								#	json.dump(citations,d,indent=4)
+								
 							except Exception as anyEx:
-								print("ERROR: Something went worng",file=sys.stderr)
+								print("ERROR: Something went wrong",file=sys.stderr)
 								print(anyEx,file=sys.stderr)
 						
 						pub_field['citation_count'] = citations_count
@@ -349,7 +543,7 @@ class PubEnricher:
 
 
 
-	def reconcilePubIds(self,entries,digestStats=True,step_size=DEFAULT_STEP_SIZE):
+	def reconcilePubIds(self,entries,results_dir=None,digestStats=True,step_size=DEFAULT_STEP_SIZE):
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
@@ -359,8 +553,15 @@ class PubEnricher:
 		entry_batch = []
 
 		for start in range(0,len(entries),step_size):
-			self.reconcilePubIdsBatch(entries[start:(start+step_size)],step_size)
-			self.reconcileCitationMetricsBatch(entries[start:(start+step_size)],digestStats)
+			stop = start+step_size
+			entries_slice = entries[start:stop]
+			self.reconcilePubIdsBatch(entries_slice,step_size)
+			self.reconcileCitationMetricsBatch(entries_slice,digestStats)
+			if results_dir is not None:
+				for idx, entry in enumerate(entries_slice):
+					dest_file = os.path.join(results_dir,'entry_'+str(start+idx)+'.json')
+					with open(dest_file,mode="w",encoding="utf-8") as outentry:
+						json.dump(entry,outentry,indent=4,sort_keys=True)
 		return entries
 
 
@@ -451,23 +652,30 @@ def reconcileDOIIdsBatch(doi_ids,batch_size=PubEnricher.DEFAULT_STEP_SIZE):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="store_true")
-	parser.add_argument("results_file", help="The results file, in JSON format")
+	dof_group = parser.add_mutually_exclusive_group(required=True)
+	dof_group.add_argument("-d","--directory", help="Store each separated result in the given directory", nargs=1, dest="results_dir")
+	dof_group.add_argument("-f","--file", help="The results file, in JSON format",nargs=1,dest="results_file")
 	parser.add_argument("cacheDir", help="The optional cache directory, to be reused", nargs="?", default=os.path.join(os.getcwd(),"cacheDir"))
 	args = parser.parse_args()
 	
 	# Now, let's work!
-	output_file = args.results_file
+	output_file = args.results_file[0] if args.results_file is not None else None
 	cache_dir = args.cacheDir  
 	# Creating the cache directory, in case it does not exist
 	os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
 	with PubEnricher(cache_dir) as pub:
 		# Step 1: fetch the entries with associated pubmed
-		fetchedEntries = pub.fetchPubIds()
+		opeb_q = OpenEBenchQueries()
+		fetchedEntries = opeb_q.fetchPubIds()
 
 		# Step 2: reconcile the DOI <-> PubMed id of the entries
-		entries = pub.reconcilePubIds(fetchedEntries,not args.full)
+		results_dir = args.results_dir[0] if args.results_dir is not None else None
+		if results_dir is not None:
+			os.makedirs(os.path.abspath(results_dir),exist_ok=True)
+		entries = pub.reconcilePubIds(fetchedEntries,results_dir,not args.full)
 
 		#print(len(fetchedEntries))
 		#print(json.dumps(fetchedEntries,indent=4))
-		with open(output_file,mode="w",encoding="utf-8") as o:
-			json.dump(entries,o,indent=4)
+		if output_file is not None:
+			with open(output_file,mode="w",encoding="utf-8") as o:
+				json.dump(entries,o,indent=4,sort_keys=True)
