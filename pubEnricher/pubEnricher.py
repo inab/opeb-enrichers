@@ -17,6 +17,9 @@ import argparse
 import warnings
 import functools
 
+import datetime, time
+import re
+
 from typing import overload, Tuple, List, Dict, Any
 
 def deprecated(func):
@@ -38,7 +41,7 @@ def deprecated(func):
 #############
 
 def doi2curie(doi_id):
-	return 'doi:'+doi_id
+	return str(doi_id) if doi_id.startswith('doi:') else 'doi:'+doi_id
 
 def pmid2curie(pubmed_id):
 	return 'pmid:'+str(pubmed_id)
@@ -46,7 +49,20 @@ def pmid2curie(pubmed_id):
 def pmcid2curie(pmc_id):
 	return 'pmc:'+str(pmc_id)
 
-def doi_norm(doi_id):
+DOI_PATTERN = re.compile('^doi:\s*(.*)',re.I)
+
+def normalize_doi(doi_id):
+	found_pat = DOI_PATTERN.search(doi_id)
+	if found_pat:
+		# It is already a CURI
+		doi_id = found_pat.group(1)
+	elif doi_id.startswith('http'):
+		# It is an URL
+		parsed_doi_id = parse.urlparse(doi_id)
+		if parsed_doi_id.netloc.endswith('doi.org'):
+			# Removing the initial slash
+			doi_id = parsed_doi_id.path[1:]
+		
 	return doi_id.upper()
 
 class OpenEBenchQueries:
@@ -69,14 +85,14 @@ class OpenEBenchQueries:
 			for pub in entry['publications']:
 				if pub is not None:
 					filtered_pub = { field: pub[field] for field in filter(lambda field: field in pub, self.OPEB_PUB_FIELDS)}
+					filtered_pub['found_pubs'] = []
 					if len(filtered_pub) > 0:
 						entry_pubs.append(filtered_pub)
 			
 			if len(entry_pubs) > 0:
 				trimmedEntries.append({
 					'@id': entry['@id'],
-					'entry_pubs': entry_pubs,
-					'pubs': []
+					'entry_pubs': entry_pubs
 				})
 		
 		return trimmedEntries
@@ -104,6 +120,16 @@ class OpenEBenchQueries:
 			print("Something unexpected happened",file=sys.stderr)
 			print(anyEx,file=sys.stderr)
 
+class Timestamps:
+	@staticmethod
+	def LocalTimestamp(theDate:datetime=datetime.datetime.now()) -> datetime:
+		utc_offset_sec = time.altzone if time.localtime().tm_isdst else time.timezone
+		return theDate.replace(tzinfo=datetime.timezone(offset=datetime.timedelta(seconds=-utc_offset_sec)))
+	
+	@staticmethod
+	def UTCTimestamp(theUTCDate:datetime=datetime.datetime.utcnow()) -> datetime:
+		return theUTCDate.replace(tzinfo=datetime.timezone.utc)
+
 class PubCache:
 	"""
 		The publications cache management code
@@ -116,6 +142,8 @@ class PubCache:
 	DEFAULT_CACHE_CITATIONS_FILE="pubEnricherCits.shelve"
 	DEFAULT_CACHE_PUB_IDS_FILE="pubEnricherIds.shelve"
 	DEFAULT_CACHE_PUB_IDMAPS_FILE="pubEnricherIdMaps.shelve"
+	
+	OLDEST_CACHE = datetime.timedelta(days=28)
 
 	def __init__(self,cache_dir:str="."):
 		self.cache_dir = cache_dir
@@ -142,29 +170,74 @@ class PubCache:
 	
 	def getCitationsAndCount(self,source_id:str,_id:str) -> Tuple[List[Dict[str,Any]],int]:
 		refId = source_id+':'+_id
-		citations,citations_count = self.cache_citations.get(refId,(None,None))
+		citations_timestamp , citations , citations_count = self.cache_citations.get(refId,(None,None,None))
+		
+		# Invalidate cache
+		if citations_timestamp is not None and (Timestamps.UTCTimestamp() - citations_timestamp) > self.OLDEST_CACHE:
+			citations = None
+			citation_count = None
 		
 		return citations,citations_count
 	
-	def setCitationsAndCount(self,source_id:str,_id:str,citations:List[Dict[str,Any]],citations_count:int) -> None:
+	def setCitationsAndCount(self,source_id:str,_id:str,citations:List[Dict[str,Any]],citations_count:int,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
 		refId = source_id+':'+_id
-		self.cache_citations[refId] = (citations,citations_count)
+		self.cache_citations[refId] = (Timestamps.UTCTimestamp(),citations,citations_count)
+	
+	def getRawCachedMapping(self,source_id:str,_id:str) -> Dict[str,Any]:
+		refId = source_id+':'+_id
+		mapping_timestamp , mapping = self.cache_idmaps.get(refId,(None,None))
+		return mapping_timestamp , mapping
 	
 	def getCachedMapping(self,source_id:str,_id:str) -> Dict[str,Any]:
-		refId = source_id+':'+_id
-		return self.cache_idmaps.get(refId)
+		mapping_timestamp , mapping = self.getRawCachedMapping(source_id,_id)
+		
+		# Invalidate cache
+		if mapping_timestamp is not None and (Timestamps.UTCTimestamp() - mapping_timestamp) > self.OLDEST_CACHE:
+			mapping = None
+		
+		return mapping
 	
-	def setCachedMapping(self,source_id:str,_id:str,mapping:Dict[str,Any]) -> None:
+	def setCachedMapping(self,source_id:str,_id:str,mapping:Dict[str,Any],mapping_timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
 		refId = source_id+':'+_id
-		self.cache_idmaps[refId] = mapping
+		old_mapping_timestamp , old_mapping = self.getRawCachedMapping(source_id,_id)
+		
+		# First, cleanup of sourceIds cache
+		if old_mapping_timestamp is not None:
+			pubmed_id = old_mapping.get('pmid')
+			if pubmed_id is not None:
+				self.removeSourceId(pubmed_id,source_id,_id,mapping_timestamp)
+			
+			doi_id = old_mapping.get('doi')
+			if doi_id is not None:
+				doi_id_norm = normalize_doi(doi_id)
+				self.removeSourceId(doi_id_norm,source_id,_id,mapping_timestamp)
+			
+			pmc_id = old_mapping.get('pmcid')
+			if pmc_id is not None:
+				self.removeSourceId(pmc_id,source_id,_id,mapping_timestamp)
+		
+		# Then, store
+		self.cache_idmaps[refId] = (mapping_timestamp,mapping)
 	
 	def getSourceIds(self,publish_id:str) -> List[str]:
-		return self.cache_ids.get(publish_id)
+		timestamp_internal_ids , internal_ids = self.cache_ids.get(publish_id,(None,None))
+		return internal_ids
 	
-	def appendSourceId(self,publish_id:str,source_id:str,_id:str):
-		internal_ids = self.cache_ids.get(publish_id,[])
+	def appendSourceId(self,publish_id:str,source_id:str,_id:str,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+		_ , internal_ids = self.cache_ids.get(publish_id,(None,[]))
 		internal_ids.append((source_id,_id))
-		self.cache_ids[publish_id] = internal_ids
+		self.cache_ids[publish_id] = (timestamp,internal_ids)
+	
+	def removeSourceId(self,publish_id:str,source_id:str,_id:str,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+		orig_timestamp , internal_ids = self.cache_ids.get(publish_id,(None,[]))
+		
+		if orig_timestamp is not None:
+			try:
+				internal_ids.remove((source_id,_id))
+				self.cache_ids[publish_id] = (timestamp,internal_ids)
+			except:
+				pass
+		
 
 class PubEnricher:
 	@overload
@@ -202,7 +275,7 @@ class PubEnricher:
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
-			the reconciliation to 'pubs' key, it returns the same
+			the reconciliation to 'found_pubs' key, it returns the same
 			parameter as input
 		"""
 		flatten = lambda l: [item for sublist in l for item in sublist]
@@ -231,7 +304,7 @@ class PubEnricher:
 					
 					doi_id = mapping.get('doi')
 					if doi_id is not None:
-						doi_id_norm = doi_norm(doi_id)
+						doi_id_norm = normalize_doi(doi_id)
 						d2e.setdefault(doi_id_norm,{})[source_id] = mapping
 					
 					pmc_id = mapping.get('pmcid')
@@ -255,7 +328,7 @@ class PubEnricher:
 				
 				doi_id = entry_pub.get('doi')
 				if doi_id is not None:
-					doi_id_norm = doi_norm(doi_id)
+					doi_id_norm = normalize_doi(doi_id)
 					if doi_id_norm not in d2e and not _updateCaches(doi_id_norm):
 						query_ids.append('DOI:"'+doi_id_norm+'"')
 				
@@ -299,7 +372,7 @@ class PubEnricher:
 									'title': result['title'],
 									'journal': result.get('journalTitle'),
 									'source': source_id,
-									'year': result['pubYear'],
+									'year': int(result['pubYear']),
 									'pmid': pubmed_id,
 									'doi': doi_id,
 									'pmcid': pmc_id
@@ -316,7 +389,7 @@ class PubEnricher:
 									self.pubC.appendSourceId(pmc_id,source_id,_id)
 								
 								if doi_id is not None:
-									doi_id_norm = doi_norm(doi_id)
+									doi_id_norm = normalize_doi(doi_id)
 									d2e.setdefault(doi_id_norm,{})[source_id] = mapping
 									self.pubC.appendSourceId(doi_id_norm,source_id,_id)
 								
@@ -352,7 +425,7 @@ class PubEnricher:
 				if doi_id is not None:
 					curie_id = doi2curie(doi_id)
 					initial_curie_ids.append(curie_id)
-					doi_id_norm = doi_norm(doi_id)
+					doi_id_norm = normalize_doi(doi_id)
 					if doi_id_norm in d2e:
 						results.append(d2e[doi_id_norm])
 					else:
@@ -417,14 +490,14 @@ class PubEnricher:
 					}
 					# No possible result
 					if notFound:
-						broken_winner['notFound'] = True
+						broken_winner['reason'] = 'notFound' if len(initial_curie_ids) > 0  else 'noReference'
 					# There were mismatches
 					else:
-						broken_winner['mismatch'] = True
+						broken_winner['reason'] = 'mismatch'
 					
 					winners.append(broken_winner)
 				
-				entry['pubs'].extend(winners)
+				entry_pub['found_pubs'].extend(winners)
 	
 	def parseCiteList(self,cite_res):
 		"""
@@ -463,79 +536,80 @@ class PubEnricher:
 		"""
 
 		for entry in entries:
-			if entry['pubs'] is not None:
-				for pub_field in entry['pubs']:
-					if pub_field['id'] is not None:
-						source_id = pub_field['source']
-						_id = pub_field['id'] #11932250
-						
-						citations, citations_count = self.pubC.getCitationsAndCount(source_id,_id)
-						
-						if citations is None or citations_count is None:
-							pageSize = 1000
-							_format = "json"
-							query = "citations"
+			for entry_pub in entry['entry_pubs']:
+				if entry_pub['found_pubs'] is not None:
+					for pub_field in entry_pub['found_pubs']:
+						if pub_field['id'] is not None:
+							source_id = pub_field['source']
+							_id = pub_field['id'] #11932250
+							
+							citations, citations_count = self.pubC.getCitationsAndCount(source_id,_id)
+							
+							if citations is None or citations_count is None:
+								pageSize = 1000
+								_format = "json"
+								query = "citations"
 
-							try:
-								page = 1
-								citations_count = None
-								pages = None
-								citations = []
-								while page > 0:
-									partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,"citations",page,pageSize,_format]))
-									with request.urlopen(parse.urljoin(self.CITATION_URL,partialURL)) as entriesConn:
-										raw_json_citations = entriesConn.read()
-										
-										#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
-										#self._debug_count += 1
-										#with open(debug_cache_filename,mode="wb") as d:
-										#	d.write(raw_json_citations)
-										
-										cite_res = json.loads(raw_json_citations.decode('utf-8'))
-										if citations_count is None:
-											citations_count = 0
-											if 'hitCount' in cite_res:
-												citations_count = cite_res['hitCount']
+								try:
+									page = 1
+									citations_count = None
+									pages = None
+									citations = []
+									while page > 0:
+										partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,"citations",page,pageSize,_format]))
+										with request.urlopen(parse.urljoin(self.CITATION_URL,partialURL)) as entriesConn:
+											raw_json_citations = entriesConn.read()
 											
-											if citations_count == 0 :
-												page = 0
-												pages = 0
+											#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
+											#self._debug_count += 1
+											#with open(debug_cache_filename,mode="wb") as d:
+											#	d.write(raw_json_citations)
+											
+											cite_res = json.loads(raw_json_citations.decode('utf-8'))
+											if citations_count is None:
+												citations_count = 0
+												if 'hitCount' in cite_res:
+													citations_count = cite_res['hitCount']
+												
+												if citations_count == 0 :
+													page = 0
+													pages = 0
+												else:
+													pages = math.ceil(citations_count/pageSize)
+												
+											citations.extend(self.parseCiteList(cite_res))
+											
+											if page < pages:
+												page += 1
+												# Avoiding to be banned
+												time.sleep(0.25)
 											else:
-												pages = math.ceil(citations_count/pageSize)
+												page = 0
 											
-										citations.extend(self.parseCiteList(cite_res))
-										
-										if page < pages:
-											page += 1
-											# Avoiding to be banned
-											time.sleep(0.25)
-										else:
-											page = 0
-										
-								self.pubC.setCitationsAndCount(source_id,_id,citations,citations_count)
-								
-								#debug_cache_filename = os.path.join(self.debug_cache_dir,'parsedcite_' + str(self._debug_count) + '.json')
-								#self._debug_count += 1
-								#with open(debug_cache_filename,mode="w",encoding="utf-8") as d:
-								#	json.dump(citations,d,indent=4)
-								
-							except Exception as anyEx:
-								print("ERROR: Something went wrong",file=sys.stderr)
-								print(anyEx,file=sys.stderr)
-						
-						pub_field['citation_count'] = citations_count
-						if digestStats:
-							# Computing the stats
-							citation_stats = {}
-							for citation in citations:
-								year = citation['pubYear']
-								if year in citation_stats:
-									citation_stats[year] += 1
-								else:
-									citation_stats[year] = 1
-							pub_field['citation_stats'] = citation_stats
-						else:
-							pub_field['citations'] = citations
+									self.pubC.setCitationsAndCount(source_id,_id,citations,citations_count)
+									
+									#debug_cache_filename = os.path.join(self.debug_cache_dir,'parsedcite_' + str(self._debug_count) + '.json')
+									#self._debug_count += 1
+									#with open(debug_cache_filename,mode="w",encoding="utf-8") as d:
+									#	json.dump(citations,d,indent=4)
+									
+								except Exception as anyEx:
+									print("ERROR: Something went wrong",file=sys.stderr)
+									print(anyEx,file=sys.stderr)
+							
+							pub_field['citation_count'] = citations_count
+							if digestStats:
+								# Computing the stats
+								citation_stats = {}
+								for citation in citations:
+									year = citation['pubYear']
+									if year in citation_stats:
+										citation_stats[year] += 1
+									else:
+										citation_stats[year] = 1
+								pub_field['citation_stats'] = citation_stats
+							else:
+								pub_field['citations'] = citations
 
 		# print(json.dumps(entry, indent=4))
 
@@ -547,7 +621,7 @@ class PubEnricher:
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
-			the reconciliation to 'pubs' key, it returns the same
+			the reconciliation to 'found_pubs' key, it returns the same
 			parameter as input
 		"""
 		entry_batch = []
