@@ -53,7 +53,7 @@ class PubCache:
 		# Invalidate cache
 		if citations_timestamp is not None and (Timestamps.UTCTimestamp() - citations_timestamp) > self.OLDEST_CACHE:
 			citations = None
-			citation_count = None
+			citations_count = None
 		
 		return citations,citations_count
 	
@@ -99,6 +99,19 @@ class PubCache:
 		
 		# Then, store
 		self.cache_idmaps[refId] = (mapping_timestamp,mapping)
+		
+		pubmed_id = mapping.get('pmid')
+		if pubmed_id is not None:
+			self.pubC.appendSourceId(pubmed_id,source_id,_id,timestamp=mapping_timestamp)
+		
+		pmc_id = mapping.get('pmcid')
+		if pmc_id is not None:
+			self.pubC.appendSourceId(pmc_id,source_id,_id,timestamp=mapping_timestamp)
+		
+		doi_id = mapping.get('doi')
+		if doi_id is not None:
+			doi_id_norm = pub_common.normalize_doi(doi_id)
+			self.pubC.appendSourceId(doi_id_norm,source_id,_id,timestamp=mapping_timestamp)
 	
 	def getSourceIds(self,publish_id:str) -> List[str]:
 		timestamp_internal_ids , internal_ids = self.cache_ids.get(publish_id,(None,None))
