@@ -75,7 +75,10 @@ class PubCache:
 		
 		return mapping
 	
-	def setCachedMapping(self,source_id:str,_id:str,mapping:Dict[str,Any],mapping_timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+	def setCachedMapping(self,mapping:Dict[str,Any],mapping_timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+		_id = mapping['id']
+		source_id = mapping['source']
+		
 		refId = source_id+':'+_id
 		old_mapping_timestamp , old_mapping = self.getRawCachedMapping(source_id,_id)
 		

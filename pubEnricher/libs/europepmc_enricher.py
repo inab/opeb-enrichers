@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import sys
 import json
 import time
 
@@ -34,222 +35,70 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
 	OPENPMC_SEARCH_URL = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search'
-	def reconcilePubIdsBatch(self,entries:List[Any]) -> None:
-		# First, gather all the ids on one list, prepared for the query
-		# MED: prefix has been removed because there are some problems
-		# on the server side
-		
-		p2e = {}
-		pmc2e = {}
-		d2e = {}
-		pubmed_pairs = []
-		
-		def _updateCaches(publish_id:str) -> bool:
-			internal_ids = self.pubC.getSourceIds(publish_id)
-			if internal_ids is not None:
-				for source_id,_id in internal_ids:
-					mapping = self.pubC.getCachedMapping(source_id,_id)
-					pubmed_pairs.append(mapping)
-					
-					source_id = mapping['source']
-					
-					pubmed_id = mapping.get('pmid')
-					if pubmed_id is not None:
-						p2e.setdefault(pubmed_id,{})[source_id] = mapping
-					
-					doi_id = mapping.get('doi')
-					if doi_id is not None:
-						doi_id_norm = pub_common.normalize_doi(doi_id)
-						d2e.setdefault(doi_id_norm,{})[source_id] = mapping
-					
-					pmc_id = mapping.get('pmcid')
-					if pmc_id is not None:
-						pmc2e.setdefault(pmc_id,{})[source_id] = mapping
-				
-				return True
-			else:
-				return False
-		
+	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
 		# Preparing the query ids
-		query_ids = []
+		raw_query_ids = []
 		
-		for entry_pubs in map(lambda entry: entry['entry_pubs'],entries):
-			for entry_pub in entry_pubs:
-				# This loop avoid resolving twice
-				pubmed_id = entry_pub.get('pmid')
-				if pubmed_id is not None and pubmed_id not in p2e:
-					if not _updateCaches(pubmed_id):
-						query_ids.append('EXT_ID:'+pubmed_id)
-				
-				doi_id = entry_pub.get('doi')
-				if doi_id is not None:
-					doi_id_norm = pub_common.normalize_doi(doi_id)
-					if doi_id_norm not in d2e and not _updateCaches(doi_id_norm):
-						query_ids.append('DOI:"'+doi_id_norm+'"')
-				
-				pmc_id = entry_pub.get('pmcid')
-				if pmc_id is not None and pmc_id not in pmc2e:
-					if not _updateCaches(pmc_id):
-						query_ids.append('PMCID:'+pmc_id)
+		for query_id in query_ids:
+			pubmed_id = query_id.get('pmid')
+			if pubmed_id is not None:
+				raw_query_ids.append('EXT_ID:"'+pubmed_id+'"')
+			
+			doi_id_norm = query_id.get('doi')
+			if doi_id_norm is not None:
+				raw_query_ids.append('DOI:"'+doi_id_norm+'"')
+			
+			pmc_id = query_id.get('pmcid')
+			if pmc_id is not None:
+				raw_query_ids.append('PMCID:"'+pmc_id+'"')
 		
 		# Now, with the unknown ones, let's ask the server
-		if len(query_ids) > 0:
-			try:
-				theQuery = {
-					'format': 'json',
-					'pageSize': 1000,
-					'query': ' or '.join(query_ids)
-				}
-				with request.urlopen(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')) as entriesConn:
-					raw_json_pubs_mappings = entriesConn.read()
-					
-					#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
-					#self._debug_count += 1
-					#with open(debug_cache_filename,mode="wb") as d:
-					#	d.write(raw_json_pubs_mappings)
-					
-					pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
-					
-					resultList = pubs_mappings.get('resultList')
-					if resultList is not None and 'result' in resultList:
-						# Gathering results
-						for result in resultList['result']:
-							_id = result['id']
-							pubmed_id = result.get('pmid')
-							doi_id = result.get('doi')
-							pmc_id = result.get('pmcid')
-							source_id = result.get('source')
+		mappings = []
+		if len(raw_query_ids) > 0:
+			theQuery = {
+				'format': 'json',
+				'pageSize': 1000,
+				'query': ' or '.join(raw_query_ids)
+			}
+			with request.urlopen(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')) as entriesConn:
+				raw_json_pubs_mappings = entriesConn.read()
+				
+				#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
+				#self._debug_count += 1
+				#with open(debug_cache_filename,mode="wb") as d:
+				#	d.write(raw_json_pubs_mappings)
+				
+				pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
+				
+				resultList = pubs_mappings.get('resultList')
+				if resultList is not None and 'result' in resultList:
+					# Gathering results
+					for result in resultList['result']:
+						_id = result['id']
+						pubmed_id = result.get('pmid')
+						doi_id = result.get('doi')
+						pmc_id = result.get('pmcid')
+						source_id = result.get('source')
+						
+						if pubmed_id is not None or doi_id is not None or pmc_id is not None:
+							mapping = {
+								'id': _id,
+								'title': result['title'],
+								'journal': result.get('journalTitle'),
+								'source': source_id,
+								'year': int(result['pubYear']),
+								'pmid': pubmed_id,
+								'doi': doi_id,
+								'pmcid': pmc_id
+							}
 							
-							if pubmed_id is not None or doi_id is not None or pmc_id is not None:
-								europepmc_id = source_id + ':' + _id
-								mapping = {
-									'id': _id,
-									'title': result['title'],
-									'journal': result.get('journalTitle'),
-									'source': source_id,
-									'year': int(result['pubYear']),
-									'pmid': pubmed_id,
-									'doi': doi_id,
-									'pmcid': pmc_id
-								}
-								
-								# Cache management
-								self.pubC.setCachedMapping(source_id,_id,mapping)
-								if pubmed_id is not None:
-									p2e.setdefault(pubmed_id,{})[source_id] = mapping
-									self.pubC.appendSourceId(pubmed_id,source_id,_id)
-								
-								if pmc_id is not None:
-									pmc2e.setdefault(pmc_id,{})[source_id] = mapping
-									self.pubC.appendSourceId(pmc_id,source_id,_id)
-								
-								if doi_id is not None:
-									doi_id_norm = pub_common.normalize_doi(doi_id)
-									d2e.setdefault(doi_id_norm,{})[source_id] = mapping
-									self.pubC.appendSourceId(doi_id_norm,source_id,_id)
-								
-								pubmed_pairs.append(mapping)
-					
-					time.sleep(0.25)
+							mappings.append(mapping)
+				
+				time.sleep(0.25)
 
-					# print(json.dumps(entries,indent=4))
-				# sys.exit(1)
-			except Exception as anyEx:
-				print("Something unexpected happened",file=sys.stderr)
-				print(anyEx,file=sys.stderr)
-				raise anyEx
+				# print(json.dumps(entries,indent=4))
 		
-		# Reconciliation and checking missing ones
-		for entry in entries:
-			for entry_pub in entry['entry_pubs']:
-				broken_curie_ids = []
-				initial_curie_ids = []
-				
-				results = []
-				pubmed_id = entry_pub.get('pmid')
-				if pubmed_id is not None:
-					curie_id = pub_common.pmid2curie(pubmed_id)
-					initial_curie_ids.append(curie_id)
-					if pubmed_id in p2e:
-						results.append(p2e[pubmed_id])
-					else:
-						broken_curie_ids.append(curie_id)
-				
-				doi_id = entry_pub.get('doi')
-				if doi_id is not None:
-					curie_id = pub_common.doi2curie(doi_id)
-					initial_curie_ids.append(curie_id)
-					doi_id_norm = pub_common.normalize_doi(doi_id)
-					if doi_id_norm in d2e:
-						results.append(d2e[doi_id_norm])
-					else:
-						broken_curie_ids.append(curie_id)
-				
-				pmc_id = entry_pub.get('pmcid')
-				if pmc_id is not None:
-					curie_id = pub_common.pmcid2curie(pmc_id)
-					initial_curie_ids.append(curie_id)
-					if pmc_id in pmc2e:
-						results.append(pmc2e[pmc_id])
-					else:
-						broken_curie_ids.append(curie_id)
-				
-				# Checking all the entries at once
-				winner_set = None
-				notFound = len(results) == 0
-				for result in results:
-					if winner_set is None:
-						winner_set = result
-					elif winner_set != result:
-						winner = None
-						break
-				
-				winners = []
-				if winner_set is not None:
-					for winner in iter(winner_set.values()):
-						# Duplicating in order to augment it
-						new_winner = dict(winner)
-						
-						curie_ids = []
-						
-						pubmed_id = new_winner.get('pmid')
-						if pubmed_id is not None:
-							curie_id = pub_common.pmid2curie(pubmed_id)
-							curie_ids.append(curie_id)
-						
-						doi_id = new_winner.get('doi')
-						if doi_id is not None:
-							curie_id = pub_common.doi2curie(doi_id)
-							curie_ids.append(curie_id)
-						
-						pmc_id = new_winner.get('pmcid')
-						if pmc_id is not None:
-							curie_id = pub_common.pmcid2curie(pmc_id)
-							curie_ids.append(curie_id)
-						
-						new_winner['curie_ids'] = curie_ids
-						new_winner['broken_curie_ids'] = broken_curie_ids
-						winners.append(new_winner)
-				else:
-					broken_winner = {
-						'id': None,
-						'source': None,
-						'curie_ids': initial_curie_ids,
-						'broken_curie_ids': broken_curie_ids,
-						'pmid': pubmed_id,
-						'doi': doi_id,
-						'pmcid': pmc_id
-					}
-					# No possible result
-					if notFound:
-						broken_winner['reason'] = 'notFound' if len(initial_curie_ids) > 0  else 'noReference'
-					# There were mismatches
-					else:
-						broken_winner['reason'] = 'mismatch'
-					
-					winners.append(broken_winner)
-				
-				entry_pub['found_pubs'].extend(winners)
+		return mappings
 	
 	def parseCiteList(self,cite_res):
 		"""
@@ -276,7 +125,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	#Url used to retrive the citations, i.e MED is publications from PubMed and MEDLINE view https://europepmc.org/RestfulWebService;jsessionid=7AD7C81CF5F041840F59CF49ABB29994#cites
 	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
 
-	def reconcileCitationMetricsBatch(self,entries,digestStats=True):
+	def reconcileCitationMetricsBatch(self,entries:List[Dict[str,Any]],digestStats:bool=True) -> None:
 		"""
 			This method takes in batches of entries and retrives citations from ids
 			hitCount: number of times cited
