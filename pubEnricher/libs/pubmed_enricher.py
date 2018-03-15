@@ -33,9 +33,9 @@ class PubmedEnricher(AbstractPubEnricher):
 	
 	# Documented at: https://www.ncbi.nlm.nih.gov/books/NBK25499/#_chapter4_ESummary_
 	PUB_ID_SUMMARY_URL='https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi'
-	def populatePubmedIds(self,mappings:List[Any]) -> None:
+	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
 		if len(mappings) > 0:
-			internal_ids = [ mapping['_id'] for mapping in mappings ]
+			internal_ids = [ mapping['id'] for mapping in mappings ]
 			theQuery = {
 				'db': 'pubmed',
 				'id': ','.join(internal_ids),
@@ -43,16 +43,13 @@ class PubmedEnricher(AbstractPubEnricher):
 				'retmax': len(internal_ids),
 				'rettype': 'abstract'
 			}
-			p2d = {}
-			d2p = {}
-			pubmed_pairs = []
 			with request.urlopen(PUB_ID_SUMMARY_URL,data=parse.urlencode(theQuery).encode('utf-8')) as entriesConn:
 				raw_pubmed_mappings = entriesConn.read()
 				pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
 				
 				results = pubmed_mappings.get('result')
 				if results is not None:
-					internal_ids_dict = dict([(mapping['_id'],mapping) for mapping in mappings])
+					internal_ids_dict = { mapping['id']: mapping  for mapping in mappings }
 					for result in results.values():
 						_id = result.get('uid')
 						if _id is not None:
@@ -86,6 +83,8 @@ class PubmedEnricher(AbstractPubEnricher):
 									pubyear = epubyear
 							
 							mapping['year'] = pubyear
+							
+							mapping['authors'] = [ author.get('name')  for author in result.get('authors',[]) ]
 							
 							# Rescuing the identifiers
 							pubmed_id = None
@@ -171,22 +170,77 @@ class PubmedEnricher(AbstractPubEnricher):
 				time.sleep(0.25)
 				
 				# Step two: get all the information of these input queries
-				self.populatePubmedIds(mapping_pairs)
+				self.populatePubIds(mapping_pairs)
 		
 		return mappings
 	
-	## Documented at: https://www.ncbi.nlm.nih.gov/books/NBK25499/#_chapter4_ELink_
-	#ELINKS_URL='https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi'
-	#def reconcileCitationMetricsBatch(self,entries:List[Dict[str,Any]],digestStats:bool=True) -> None:
-	#	raw_query_ids = [ entry['_id'] for entry in entries ]
-	#	theLinksQuery = {
-	#		'db': 'pubmed',
-	#		'dbfrom': 'pubmed',
-	#		'id': ','.join(raw_query_ids),
-	#		'cmd': 'neighbor',
-	#		'retmode': 'json'
-	#	}
-	#	
-	#	with request.urlopen(ELINKS_URL,data=parse.urlencode(theLinksQuery).encode('utf-8')) as elinksConn:
-	#		raw_id_mappings = elinksConn.read()
-	#		id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
+	# Documented at: https://www.ncbi.nlm.nih.gov/books/NBK25499/#_chapter4_ELink_
+	# The drawback of this service is that it merges the answers from several queries
+	ELINKS_URL='https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi'
+	def queryCitationsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+		new_citations=[]
+		
+		raw_ids = list(map(lambda query: query['id'], query_citations_data))
+		theLinksQuery = {
+			'dbfrom': 'pubmed',
+			'linkname': 'pubmed_pubmed_citedin',
+			'id': raw_ids,
+			'db': 'pubmed',
+			'tool': 'opeb-enrichers',
+			'retmode': 'json'
+		}
+		
+		with request.urlopen(ELINKS_URL,data=parse.urlencode(theLinksQuery,doseq=True).encode('utf-8')) as elinksConn:
+			raw_json_citation_refs = elinksConn.read()
+			raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
+
+			linksets = raw_json_citations.get('linksets')
+			if linksets is not None:
+				query_hash = { query['id']: query  for query in query_citations_data }
+				for linkset in linksets:
+					ids = linkset.get('ids',[])
+					if len(ids) > 0:
+						_id = ids[0]
+						linksetdbs = linkset.get('linksetdbs',[])
+						if len(linksetdbs) > 0:
+							source_id = query['source']
+							linksetdb = linksetdbs[0]
+							links = linksetdb.get('links',[])
+							query = query_hash[_id]
+							
+							citations = list(map(lambda _id: {
+								'id': _id,
+								'source': source_id
+							},links))
+							
+							self.populatePubIds(citations,onlyYear=True)
+							
+							cite_res = {
+								'id': _id,
+								'source': query['source'],
+								'citations': citations,
+								'citation_count': len(citations)
+							}
+					
+					
+		for pub_field in query_citations_data:
+			_id = pub_field.get('id') #11932250
+			if _id is not None:
+				source_id = pub_field['source']
+				
+				theLinksQuery = {
+					'dbfrom': 'pubmed',
+					'linkname': 'pubmed_pubmed_citedin',
+					'id': _id,
+					'db': 'pubmed',
+					'tool': 'opeb-enrichers',
+					'retmode': 'json'
+				}
+				
+				with request.urlopen(ELINKS_URL,data=parse.urlencode(theLinksQuery,doseq=True).encode('utf-8')) as elinksConn:
+					raw_json_citation_refs = elinksConn.read()
+					raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
+					
+							
+		
+		return new_citations
