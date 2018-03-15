@@ -46,6 +46,11 @@ class PubCache:
 		self.cache_idmaps.close()
 	
 	
+	def sync(self) -> None:
+		self.cache_citations.sync()
+		self.cache_ids.sync()
+		self.cache_idmaps.sync()
+	
 	def getCitationsAndCount(self,source_id:str,_id:str) -> Tuple[List[Dict[str,Any]],int]:
 		refId = source_id+':'+_id
 		citations_timestamp , citations , citations_count = self.cache_citations.get(refId,(None,None,None))
@@ -79,39 +84,36 @@ class PubCache:
 		_id = mapping['id']
 		source_id = mapping['source']
 		
+		# Fetching previous version
 		refId = source_id+':'+_id
 		old_mapping_timestamp , old_mapping = self.getRawCachedMapping(source_id,_id)
 		
-		# First, cleanup of sourceIds cache
-		if old_mapping_timestamp is not None:
-			pubmed_id = old_mapping.get('pmid')
-			if pubmed_id is not None:
-				self.removeSourceId(pubmed_id,source_id,_id,mapping_timestamp)
-			
-			doi_id = old_mapping.get('doi')
-			if doi_id is not None:
-				doi_id_norm = pub_common.normalize_doi(doi_id)
-				self.removeSourceId(doi_id_norm,source_id,_id,mapping_timestamp)
-			
-			pmc_id = old_mapping.get('pmcid')
-			if pmc_id is not None:
-				self.removeSourceId(pmc_id,source_id,_id,mapping_timestamp)
-		
-		# Then, store
+		# First, store
 		self.cache_idmaps[refId] = (mapping_timestamp,mapping)
 		
+		# Then, cleanup of sourceIds cache
 		pubmed_id = mapping.get('pmid')
-		if pubmed_id is not None:
-			self.pubC.appendSourceId(pubmed_id,source_id,_id,timestamp=mapping_timestamp)
-		
 		pmc_id = mapping.get('pmcid')
-		if pmc_id is not None:
-			self.pubC.appendSourceId(pmc_id,source_id,_id,timestamp=mapping_timestamp)
-		
 		doi_id = mapping.get('doi')
-		if doi_id is not None:
-			doi_id_norm = pub_common.normalize_doi(doi_id)
-			self.pubC.appendSourceId(doi_id_norm,source_id,_id,timestamp=mapping_timestamp)
+		doi_id_norm = pub_common.normalize_doi(doi_id)  if doi_id else None
+		
+		if old_mapping_timestamp is not None:
+			old_pubmed_id = old_mapping.get('pmid')
+			old_doi_id = old_mapping.get('doi')
+			old_pmc_id = old_mapping.get('pmcid')
+		else:
+			old_pubmed_id = None
+			old_doi_id = None
+			old_pmc_id = None
+		old_doi_id_norm = pub_common.normalize_doi(old_doi_id)  if old_doi_id else None
+		
+		for old_id, new_id in [(old_pubmed_id,pubmed_id),(old_doi_id_norm,doi_id_norm),(old_pmc_id,pmc_id)]:
+			# Code needed for mismatches
+			if old_id is not None and old_id != new_id:
+				self.removeSourceId(old_id,source_id,_id,timestamp=mapping_timestamp)
+			
+			if new_id is not None and old_id != new_id:
+				self.appendSourceId(new_id,source_id,_id,timestamp=mapping_timestamp)
 	
 	def getSourceIds(self,publish_id:str) -> List[str]:
 		timestamp_internal_ids , internal_ids = self.cache_ids.get(publish_id,(None,None))
