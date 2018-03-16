@@ -13,6 +13,10 @@ class Timestamps:
 	def UTCTimestamp(theUTCDate:datetime=datetime.datetime.utcnow()) -> datetime:
 		return theUTCDate.replace(tzinfo=datetime.timezone.utc)
 
+def print_debug_url(module,sourceURL):
+	print(' '.join(module ,str(Timestamps.LocalTimestamp()),sourceURL),file=sys.stderr)
+
+
 import re
 
 def doi2curie(doi_id):
