@@ -8,6 +8,17 @@ from typing import Tuple, List, Dict, Any
 from . import pub_common
 from .pub_common import Timestamps
 
+# Alias types declaration
+Citation = Dict[str,Any]
+CitationCount = int
+Reference = Dict[str,Any]
+ReferenceCount = int
+Mapping = Dict[str,Any]
+UnqualifiedId = str
+SourceId = str
+QualifiedId = Tuple[SourceId,UnqualifiedId]
+PublishId = str
+
 class PubCache:
 	"""
 		The publications cache management code
@@ -18,6 +29,7 @@ class PubCache:
 		Also, it stores the citations fetched from the original source
 	"""
 	DEFAULT_CACHE_CITATIONS_FILE="pubEnricherCits.shelve"
+	DEFAULT_CACHE_REFERENCES_FILE="pubEnricherRefs.shelve"
 	DEFAULT_CACHE_PUB_IDS_FILE="pubEnricherIds.shelve"
 	DEFAULT_CACHE_PUB_IDMAPS_FILE="pubEnricherIdMaps.shelve"
 	
@@ -31,47 +43,66 @@ class PubCache:
 		#self._debug_count = 0
 		
 		self.cache_citations_file = os.path.join(cache_dir,self.DEFAULT_CACHE_CITATIONS_FILE)
+		self.cache_references_file = os.path.join(cache_dir,self.DEFAULT_CACHE_REFERENCES_FILE)
 		self.cache_ids_file = os.path.join(cache_dir,self.DEFAULT_CACHE_PUB_IDS_FILE)
 		self.cache_idmaps_file = os.path.join(cache_dir,self.DEFAULT_CACHE_PUB_IDMAPS_FILE)
 	
 	def __enter__(self):
 		self.cache_citations = shelve.open(self.cache_citations_file)
+		self.cache_references = shelve.open(self.cache_references_file)
 		self.cache_ids = shelve.open(self.cache_ids_file)
 		self.cache_idmaps = shelve.open(self.cache_idmaps_file)
 		return self
 	
 	def __exit__(self, exc_type, exc_val, exc_tb) -> None:
 		self.cache_citations.close()
+		self.cache_references.close()
 		self.cache_ids.close()
 		self.cache_idmaps.close()
 	
 	
 	def sync(self) -> None:
 		self.cache_citations.sync()
+		self.cache_references.sync()
 		self.cache_ids.sync()
 		self.cache_idmaps.sync()
 	
-	def getCitationsAndCount(self,source_id:str,_id:str) -> Tuple[List[Dict[str,Any]],int]:
+	def getCitationsAndCount(self,source_id:SourceId,_id:UnqualifiedId) -> Tuple[List[Citation],CitationCount]:
 		refId = source_id+':'+_id
-		citations_timestamp , citations , citations_count = self.cache_citations.get(refId,(None,None,None))
+		citations_timestamp , citations , citation_count = self.cache_citations.get(refId,(None,None,None))
 		
 		# Invalidate cache
 		if citations_timestamp is not None and (Timestamps.UTCTimestamp() - citations_timestamp) > self.OLDEST_CACHE:
 			citations = None
-			citations_count = None
+			citation_count = None
 		
-		return citations,citations_count
+		return citations,citation_count
 	
-	def setCitationsAndCount(self,source_id:str,_id:str,citations:List[Dict[str,Any]],citations_count:int,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+	def setCitationsAndCount(self,source_id:SourceId,_id:UnqualifiedId,citations:List[Citation],citation_count:CitationCount,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
 		refId = source_id+':'+_id
-		self.cache_citations[refId] = (Timestamps.UTCTimestamp(),citations,citations_count)
+		self.cache_citations[refId] = (timestamp,citations,citation_count)
 	
-	def getRawCachedMapping(self,source_id:str,_id:str) -> Dict[str,Any]:
+	def getReferencesAndCount(self,source_id:SourceId,_id:UnqualifiedId) -> Tuple[List[Reference],ReferenceCount]:
+		refId = source_id+':'+_id
+		references_timestamp , references , reference_count = self.cache_references.get(refId,(None,None,None))
+		
+		# Invalidate cache
+		if references_timestamp is not None and (Timestamps.UTCTimestamp() - references_timestamp) > self.OLDEST_CACHE:
+			references = None
+			reference_count = None
+		
+		return references,reference_count
+	
+	def setReferencesAndCount(self,source_id:SourceId,_id:UnqualifiedId,references:List[Reference],reference_count:ReferenceCount,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+		refId = source_id+':'+_id
+		self.cache_references[refId] = (timestamp,references,reference_count)
+	
+	def getRawCachedMapping(self,source_id:SourceId,_id:UnqualifiedId) -> Mapping:
 		refId = source_id+':'+_id
 		mapping_timestamp , mapping = self.cache_idmaps.get(refId,(None,None))
 		return mapping_timestamp , mapping
 	
-	def getCachedMapping(self,source_id:str,_id:str) -> Dict[str,Any]:
+	def getCachedMapping(self,source_id:SourceId,_id:UnqualifiedId) -> Mapping:
 		mapping_timestamp , mapping = self.getRawCachedMapping(source_id,_id)
 		
 		# Invalidate cache
@@ -80,7 +111,7 @@ class PubCache:
 		
 		return mapping
 	
-	def setCachedMapping(self,mapping:Dict[str,Any],mapping_timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+	def setCachedMapping(self,mapping:Mapping,mapping_timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
 		_id = mapping['id']
 		source_id = mapping['source']
 		
@@ -115,16 +146,16 @@ class PubCache:
 			if new_id is not None and old_id != new_id:
 				self.appendSourceId(new_id,source_id,_id,timestamp=mapping_timestamp)
 	
-	def getSourceIds(self,publish_id:str) -> List[str]:
+	def getSourceIds(self,publish_id:PublishId) -> List[QualifiedId]:
 		timestamp_internal_ids , internal_ids = self.cache_ids.get(publish_id,(None,None))
 		return internal_ids
 	
-	def appendSourceId(self,publish_id:str,source_id:str,_id:str,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+	def appendSourceId(self,publish_id:PublishId,source_id:SourceId,_id:UnqualifiedId,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
 		_ , internal_ids = self.cache_ids.get(publish_id,(None,[]))
 		internal_ids.append((source_id,_id))
 		self.cache_ids[publish_id] = (timestamp,internal_ids)
 	
-	def removeSourceId(self,publish_id:str,source_id:str,_id:str,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
+	def removeSourceId(self,publish_id:PublishId,source_id:SourceId,_id:UnqualifiedId,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
 		orig_timestamp , internal_ids = self.cache_ids.get(publish_id,(None,[]))
 		
 		if orig_timestamp is not None:

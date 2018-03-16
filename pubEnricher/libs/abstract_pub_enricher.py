@@ -16,20 +16,22 @@ class AbstractPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
 	
 	@overload
-	def __init__(self,cache:str="."):
+	def __init__(self,cache:str=".",step_size:int=DEFAULT_STEP_SIZE):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache):
+	def __init__(self,cache:PubCache,step_size:int=DEFAULT_STEP_SIZE):
 		...
 	
-	def __init__(self,cache):
+	def __init__(self,cache,step_size:int=DEFAULT_STEP_SIZE):
 		if type(cache) is str:
 			self.cache_dir = cache
 			self.pubC = PubCache(self.cache_dir)
 		else:
 			self.pubC = cache
 			self.cache_dir = cache.cache_dir
+		
+		self.step_size = step_size
 		
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
@@ -44,19 +46,18 @@ class AbstractPubEnricher(ABC):
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.pubC.__exit__(exc_type, exc_val, exc_tb)
 	
-	
-	def populateMapping(base_mapping:Dict[str,Any],dest_mapping:Dict[str,Any],onlyYear:bool=False) -> None:
+	@classmethod
+	def populateMapping(cls,base_mapping:Dict[str,Any],dest_mapping:Dict[str,Any],onlyYear:bool=False) -> None:
 		if onlyYear:
 			dest_mapping['year'] = base_mapping.get('year')
 		else:
-			for key,value in base_mapping.iter():
-				dest_mapping[key] = value
+			dest_mapping.update(base_mapping)
 	
 	@abstractmethod
 	def populatePubIdsBatch(self,partial_mappings:List[Dict[str,Any]]) -> None:
 		pass
 	
-	def populatePubIds(self,mappings:List[Dict[str,Any]],onlyYear:bool=False) -> None:
+	def populatePubIds(self,partial_mappings:List[Dict[str,Any]],onlyYear:bool=False) -> None:
 		populable_mappings = []
 		if onlyYear:
 			# We are interested only in the year facet
@@ -66,7 +67,7 @@ class AbstractPubEnricher(ABC):
 					populable_mappings.append(partial_mapping)
 		else:
 			for partial_mapping in partial_mappings:
-				mapping = self.pubC.getCachedMapping(source_id,_id)
+				mapping = self.pubC.getCachedMapping(partial_mapping['source'],partial_mapping['id'])
 				
 				if mapping is None:
 					populable_mappings.append(partial_mapping)
@@ -75,11 +76,14 @@ class AbstractPubEnricher(ABC):
 		
 		if len(populable_mappings) > 0:
 			populable_mappings_clone = list(map(lambda p_m: { 'id': p_m['id'], 'source': p_m['source'] } , populable_mappings))
-			self.populatePubIdsBatch(populable_mappings_clone)
+			for start in range(0,len(populable_mappings_clone),self.step_size):
+				stop = start+self.step_size
+				populable_mappings_slice = populable_mappings_clone[start:stop]
+				self.populatePubIdsBatch(populable_mappings_slice)
+			
 			for p_m,p_m_c in zip(populable_mappings,populable_mappings_clone):
 				# It is a kind of indicator the 'year' flag
 				if p_m_c.get('year') is not None:
-					internal_ids = self.pubC.getSourceIds(publish_id)
 					self.pubC.setCachedMapping(p_m_c)
 					self.populateMapping(p_m_c,p_m,onlyYear)
 			
@@ -285,10 +289,10 @@ class AbstractPubEnricher(ABC):
 				entry_pub['found_pubs'].extend(winners)
 	
 	@abstractmethod
-	def queryCitationsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		pass
 	
-	def reconcileCitationMetricsBatch(self,entries:List[Dict[str,Any]],digestStats:bool=True) -> None:
+	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],digestStats:bool=True) -> None:
 		"""
 			This method takes in batches of entries and retrives citations from ids
 			hitCount: number of times cited
@@ -308,23 +312,30 @@ class AbstractPubEnricher(ABC):
 						_id = pub_field.get('id') #11932250
 						if _id is not None:
 							source_id = pub_field['source']
-							citations, citations_count = self.pubC.getCitationsAndCount(source_id,_id)
 							
-							if citations is None:
-								# Query later, without repetitions
+							citations, citation_count = self.pubC.getCitationsAndCount(source_id,_id)
+							if citations is not None:
+								# Save now
+								pub_field['citation_count'] = citation_count
+								pub_field['citations'] = citations
+
+							references, reference_count = self.pubC.getReferencesAndCount(source_id,_id)
+							if references is not None:
+								# Save now
+								pub_field['reference_count'] = reference_count
+								pub_field['references'] = references
+							
+							# Query later, without repetitions
+							if citations is None or references is None:
 								query_list = query_hash.setdefault((_id,source_id),[])
 								if len(query_list) == 0:
 									query_citations_data.append(pub_field)
 								query_list.append(pub_field)
-							else:
-								# Save now
-								pub_field['citation_count'] = citations_count
-								pub_field['citations'] = citations
 		
 		# Update the cache with the new data
 		if len(query_citations_data) > 0:
 			try:
-				new_citations = self.queryCitationsBatch(query_citations_data)
+				new_citations = self.queryCitRefsBatch(query_citations_data)
 			except Exception as anyEx:
 				print("ERROR: Something went wrong",file=sys.stderr)
 				print(anyEx,file=sys.stderr)
@@ -333,12 +344,25 @@ class AbstractPubEnricher(ABC):
 			for new_citation in new_citations:
 				source_id = new_citation['source']
 				_id = new_citation['id']
-				citations = new_citation.get('citations',[])
-				citations_count = new_citation.get('citation_count',len(citations))
-				self.pubC.setCitationsAndCount(source_id,_id,citations,citations_count)
-				for pub_field in query_hash[(_id,source_id)]:
-					pub_field['citation_count'] = citations_count
-					pub_field['citations'] = citations
+				
+				if 'citations' in new_citation:
+					citations = new_citation['citations']
+					citation_count = new_citation['citation_count']
+					# There are cases where no citation could be fetched
+					if citations is not None:
+						self.pubC.setCitationsAndCount(source_id,_id,citations,citation_count)
+					for pub_field in query_hash[(_id,source_id)]:
+						pub_field['citation_count'] = citation_count
+						pub_field['citations'] = citations
+				
+				if 'references' in new_citation:
+					references = new_citation['references']
+					reference_count = new_citation['reference_count']
+					if references is not None:
+						self.pubC.setReferencesAndCount(source_id,_id,references,reference_count)
+					for pub_field in query_hash[(_id,source_id)]:
+						pub_field['reference_count'] = reference_count
+						pub_field['references'] = references
 		
 		# If we have to return the digested stats, compute them here
 		if digestStats:
@@ -359,8 +383,21 @@ class AbstractPubEnricher(ABC):
 										citation_stats[year] = 1
 								pub_field['citation_stats'] = citation_stats
 								del pub_field['citations']
+							
+							references = pub_field.get('references')
+							if references is not None:
+								# Computing the stats
+								reference_stats = {}
+								for reference in references:
+									year = reference['year']
+									if year in reference_stats:
+										reference_stats[year] += 1
+									else:
+										reference_stats[year] = 1
+								pub_field['reference_stats'] = reference_stats
+								del pub_field['references']
 	
-	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,digestStats:bool=True,step_size:int=DEFAULT_STEP_SIZE) -> List[Any]:
+	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,digestStats:bool=True) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
@@ -368,15 +405,16 @@ class AbstractPubEnricher(ABC):
 			parameter as input
 		"""
 		
-		for start in range(0,len(entries),step_size):
-			stop = start+step_size
+		for start in range(0,len(entries),self.step_size):
+			stop = start+self.step_size
 			entries_slice = entries[start:stop]
 			self.reconcilePubIdsBatch(entries_slice)
-			self.reconcileCitationMetricsBatch(entries_slice,digestStats)
+			self.reconcileCitRefMetricsBatch(entries_slice,digestStats)
 			self.pubC.sync()
 			if results_dir is not None:
+				filename_prefix = 'entry_' if digestStats else 'fullentry_'
 				for idx, entry in enumerate(entries_slice):
-					dest_file = os.path.join(results_dir,'entry_'+str(start+idx)+'.json')
+					dest_file = os.path.join(results_dir,filename_prefix+str(start+idx)+'.json')
 					with open(dest_file,mode="w",encoding="utf-8") as outentry:
 						json.dump(entry,outentry,indent=4,sort_keys=True)
 		

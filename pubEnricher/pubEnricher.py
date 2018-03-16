@@ -11,18 +11,26 @@ import argparse
 
 from libs.pub_common import *
 from libs.opeb_queries import OpenEBenchQueries
+from libs.abstract_pub_enricher import AbstractPubEnricher
 from libs.europepmc_enricher import EuropePMCEnricher
+from libs.pubmed_enricher import PubmedEnricher
 
 #############
 # Main code #
 #############
 
 if __name__ == "__main__":
+	backends = {
+		'europepmc': EuropePMCEnricher,
+		'pubmed': PubmedEnricher
+	}
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="store_true")
+	parser.add_argument("-b","--backend", help="Choose the enrichment backend", choices=backends, default='europepmc')
 	dof_group = parser.add_mutually_exclusive_group(required=True)
 	dof_group.add_argument("-d","--directory", help="Store each separated result in the given directory", nargs=1, dest="results_dir")
 	dof_group.add_argument("-f","--file", help="The results file, in JSON format",nargs=1,dest="results_file")
+	parser.add_argument("-s","--step", help="The queries are made in batches of at most this size",dest="step_size",type=int,default=AbstractPubEnricher.DEFAULT_STEP_SIZE)
 	parser.add_argument("cacheDir", help="The optional cache directory, to be reused", nargs="?", default=os.path.join(os.getcwd(),"cacheDir"))
 	args = parser.parse_args()
 	
@@ -31,7 +39,8 @@ if __name__ == "__main__":
 	cache_dir = args.cacheDir  
 	# Creating the cache directory, in case it does not exist
 	os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
-	with EuropePMCEnricher(cache_dir) as pub:
+	ChosenEnricher = backends.get(args.backend,EuropePMCEnricher)
+	with ChosenEnricher(cache_dir,args.step_size) as pub:
 		# Step 1: fetch the entries with associated pubmed
 		opeb_q = OpenEBenchQueries()
 		fetchedEntries = opeb_q.fetchPubIds()

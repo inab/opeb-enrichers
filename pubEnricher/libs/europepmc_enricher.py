@@ -20,19 +20,19 @@ from . import pub_common
 
 class EuropePMCEnricher(AbstractPubEnricher):
 	@overload
-	def __init__(self,cache:str="."):
+	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache):
+	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
 		...
 	
-	def __init__(self,cache):
+	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache)
+		super().__init__(cache,step_size)
 	
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
@@ -163,80 +163,99 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		
 		return mappings
 	
-	def parseCiteList(self,cite_res):
-		"""
-			iterates over the citation list and keeps only fields from the the fields
-			list specified below
-		"""
-		fields = ['id','source']
-		filtered_cites = [ ]
-		if 'citationList' in cite_res:
-			if 'citation' in cite_res['citationList']:
-				cite_list = cite_res['citationList']['citation']
-				for cite in cite_list:
-					filtered_cite = { field: cite[field] for field in filter(lambda field: field in cite , fields) }
-					pubYear = cite['pubYear']
-					if pubYear is not None:
-						filtered_cite['year'] = int(pubYear)
-					
-					filtered_cites.append(filtered_cite)
-		return filtered_cites
-	
 	# Documentation at: https://europepmc.org/RestfulWebService#cites
 	#Url used to retrive the citations, i.e MED is publications from PubMed and MEDLINE view https://europepmc.org/RestfulWebService;jsessionid=7AD7C81CF5F041840F59CF49ABB29994#cites
+	CITREF_ENDPOINT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
+	CITREF_PAGESIZE=1000
+	def querySingleCitRef(self,source_id:str,_id:str,query_mode:bool,pageSize:int=CITREF_PAGESIZE) -> Tuple[List[Dict[str,Any]],int]:
+		if query_mode:
+			query = 'citations'
+			citref_list_key = 'citationList'
+			citref_key = 'citation'
+		else:
+			query = 'references'
+			citref_list_key = 'referenceList'
+			citref_key = 'reference'
+		
+		page = 1
+		citref_count = None
+		pages = None
+		citrefs = []
+		while page > 0:
+			partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,query,page,pageSize,'json']))
+			print(parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL),file=sys.stderr)
+			try:
+				with request.urlopen(parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL)) as entriesConn:
+					raw_json_citrefs = entriesConn.read()
+					
+					#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
+					#self._debug_count += 1
+					#with open(debug_cache_filename,mode="wb") as d:
+					#	d.write(raw_json_citrefs)
+					
+					citref_res = json.loads(raw_json_citrefs.decode('utf-8'))
+					if citref_count is None:
+						citref_count = citref_res.get('hitCount',0)
+						
+						if citref_count == 0 :
+							page = 0
+							pages = 0
+						else:
+							pages = math.ceil(citref_count/pageSize)
+						
+					if citref_list_key in citref_res:
+						if citref_key in citref_res[citref_list_key]:
+							citref_list = citref_res[citref_list_key][citref_key]
+							for citref in citref_list:
+								pubYear = citref['pubYear']
+								filtered_citref = {
+									'id': citref.get('id'),
+									'source': citref.get('source')
+								}
+								if pubYear is not None:
+									filtered_citref['year'] = int(pubYear)
+								
+								citrefs.append(filtered_citref)
+					
+					if page < pages:
+						page += 1
+						# Avoiding to be banned
+						time.sleep(0.25)
+					else:
+						page = 0
+			except HTTPError as e:
+				if e.code == 404:
+					citrefs = None
+					# We need to go out the loop
+					page = 0
+				else:
+					raise e
+		
+		return citrefs,citref_count				
+	
+	# Documentation at: https://europepmc.org/RestfulWebService#cites
 	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
-	def queryCitationsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
-		new_citations=[]
-		for pub_field in query_citations_data:
+	def queryCitRefsBatch(self,query_citrefs_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+		new_citrefs=[]
+		for pub_field in query_citrefs_data:
 			_id = pub_field.get('id') #11932250
 			if _id is not None:
 				source_id = pub_field['source']
-				
-				pageSize = 1000
-				_format = "json"
-				query = "citations"
-
-				page = 1
-				citations_count = None
-				pages = None
-				citations = []
-				while page > 0:
-					partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,"citations",page,pageSize,_format]))
-					print(parse.urljoin(self.CITATION_URL,partialURL),file=sys.stderr)
-					with request.urlopen(parse.urljoin(self.CITATION_URL,partialURL)) as entriesConn:
-						raw_json_citations = entriesConn.read()
-						
-						#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
-						#self._debug_count += 1
-						#with open(debug_cache_filename,mode="wb") as d:
-						#	d.write(raw_json_citations)
-						
-						cite_res = json.loads(raw_json_citations.decode('utf-8'))
-						if citations_count is None:
-							citations_count = 0
-							if 'hitCount' in cite_res:
-								citations_count = cite_res['hitCount']
-							
-							if citations_count == 0 :
-								page = 0
-								pages = 0
-							else:
-								pages = math.ceil(citations_count/pageSize)
-							
-						citations.extend(self.parseCiteList(cite_res))
-						
-						if page < pages:
-							page += 1
-							# Avoiding to be banned
-							time.sleep(0.25)
-						else:
-							page = 0
-						
-				new_citations.append({
+				citref = {
 					'id': _id,
 					'source': source_id,
-					'citations': citations,
-					'citation_count': citations_count
-				})
+				}
+				
+				if pub_field.get('citations') is None:
+					citations, citation_count = self.querySingleCitRef(source_id,_id,True)
+					citref['citations'] = citations
+					citref['citation_count'] = citation_count
+				
+				if pub_field.get('references') is None:
+					references, reference_count = self.querySingleCitRef(source_id,_id,False)
+					citref['references'] = references
+					citref['reference_count'] = reference_count
+				
+				new_citrefs.append(citref)
 		
-		return new_citations
+		return new_citrefs
