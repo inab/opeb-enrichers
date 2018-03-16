@@ -12,8 +12,9 @@ class OpenEBenchQueries:
 	OPENEBENCH_SOURCE ="https://openebench.bsc.es/monitor/rest/search?projection=publications"
 	OPEB_PUB_FIELDS = ( 'pmid' , 'doi' , 'pmcid' )
 	
-	def __init__(self):
-		pass
+	def __init__(self,load_opeb_filename:str=None,save_opeb_filename:str=None):
+		self.load_opeb_filename = load_opeb_filename
+		self.save_opeb_filename = save_opeb_filename
 	
 	def parseOpenEBench(self,entries:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		"""
@@ -50,10 +51,20 @@ class OpenEBenchQueries:
 			The reconciliation is done later
 		"""
 		try:
-			with request.urlopen(sourceURL) as resp:
-				retval = json.loads(resp.read().decode('utf-8'))
+			if self.load_opeb_filename:
+				with open(self.load_opeb_filename,mode="rb") as resp:
+					raw_opeb = resp.read()
+			else:
+				with request.urlopen(sourceURL) as resp:
+					raw_opeb = resp.read()
+			
+			if self.save_opeb_filename:
+				with open(self.save_opeb_filename,mode="wb") as savefile:
+					savefile.write(raw_opeb)
+			
+			retval = json.loads(raw_opeb.decode('utf-8'))
 
-				return self.parseOpenEBench(retval)
+			return self.parseOpenEBench(retval)
 
 		except URLError as ue:
 			print("ERROR: could not fetch {0}".format(sourceURL),file=sys.stderr)

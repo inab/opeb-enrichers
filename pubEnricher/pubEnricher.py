@@ -27,6 +27,8 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="store_true")
 	parser.add_argument("-b","--backend", help="Choose the enrichment backend", choices=backends, default='europepmc')
+	parser.add_argument("--save-opeb", help="Save the OpenEBench content to a file", nargs=1,dest="save_opeb_filename")
+	parser.add_argument("--use-opeb", help="Use the OpenEBench content from a file instead of network", nargs=1,dest="load_opeb_filename")
 	dof_group = parser.add_mutually_exclusive_group(required=True)
 	dof_group.add_argument("-d","--directory", help="Store each separated result in the given directory", nargs=1, dest="results_dir")
 	dof_group.add_argument("-f","--file", help="The results file, in JSON format",nargs=1,dest="results_file")
@@ -36,13 +38,15 @@ if __name__ == "__main__":
 	
 	# Now, let's work!
 	output_file = args.results_file[0] if args.results_file is not None else None
+	save_opeb_filename = args.save_opeb_filename[0] if args.save_opeb_filename is not None else None
+	load_opeb_filename = args.load_opeb_filename[0] if args.load_opeb_filename is not None else None
 	cache_dir = args.cacheDir  
 	# Creating the cache directory, in case it does not exist
 	os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
 	ChosenEnricher = backends.get(args.backend,EuropePMCEnricher)
 	with ChosenEnricher(cache_dir,args.step_size) as pub:
 		# Step 1: fetch the entries with associated pubmed
-		opeb_q = OpenEBenchQueries()
+		opeb_q = OpenEBenchQueries(load_opeb_filename,save_opeb_filename)
 		fetchedEntries = opeb_q.fetchPubIds()
 
 		# Step 2: reconcile the DOI <-> PubMed id of the entries
