@@ -68,8 +68,11 @@ class OpenEBenchQueries:
 
 		except URLError as ue:
 			print("ERROR: could not fetch {0}".format(sourceURL),file=sys.stderr)
+			raise ue
 		except json.JSONDecodeError as jde:
 			print("ERROR: Bad-formed JSON: "+jde.msg)
+			raise jde
 		except Exception as anyEx:
 			print("Something unexpected happened",file=sys.stderr)
 			print(anyEx,file=sys.stderr)
+			raise anyEx
