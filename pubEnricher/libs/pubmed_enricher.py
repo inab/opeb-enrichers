@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import sys
 import json
 import time
 import re
@@ -18,19 +19,19 @@ from . import pub_common
 
 class PubmedEnricher(AbstractPubEnricher):
 	@overload
-	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
+	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
+	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
 		...
 	
-	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
+	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,step_size)
+		super().__init__(cache,step_size,debug)
 	
 	PUBMED_SOURCE='pubmed'
 	
@@ -41,12 +42,16 @@ class PubmedEnricher(AbstractPubEnricher):
 			internal_ids = [ mapping['id']  for mapping in mappings ]
 			theQuery = {
 				'db': 'pubmed',
-				'id': ','.join(internal_ids),
+				'id': ' '.join(internal_ids),
 				'retmode': 'json',
-				'retmax': len(internal_ids),
+				'retmax': 100000,
 				'rettype': 'abstract'
 			}
-			with request.urlopen(self.PUB_ID_SUMMARY_URL,data=parse.urlencode(theQuery).encode('utf-8')) as entriesConn:
+			
+			summary_url_data = parse.urlencode(theQuery)
+			if self._debug:
+				print(self.PUB_ID_SUMMARY_URL+'?'+summary_url_data,file=sys.stderr)
+			with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8')) as entriesConn:
 				raw_pubmed_mappings = entriesConn.read()
 				pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
 				
@@ -74,18 +79,12 @@ class PubmedEnricher(AbstractPubEnricher):
 						mapping['journal'] = result.get('fulljournalname')
 						
 						# Computing the publication year
-						pubdate = result.get('pubdate')
-						epubdate = result.get('epubdate')
+						pubdate = result.get('sortpubdate')
 						pubyear = None
 						
 						if pubdate is not None:
-							pubyear = int(re.split(r"[ -]",pubdate)[0])
+							pubyear = int(pubdate.split('/')[0])
 							
-						if epubdate is not None and len(epubdate) > 0:
-							epubyear = int(re.split(r"[ -]",epubdate)[0])
-							if epubyear < pubyear:
-								pubyear = epubyear
-						
 						mapping['year'] = pubyear
 						
 						mapping['authors'] = [ author.get('name')  for author in result.get('authors',[]) ]
@@ -148,7 +147,10 @@ class PubmedEnricher(AbstractPubEnricher):
 				'format': 'json'
 			}
 			
-			with request.urlopen(self.PUB_ID_CONVERTER_URL,data=parse.urlencode(theIdQuery).encode('utf-8')) as entriesConn:
+			converter_url_data = parse.urlencode(theIdQuery)
+			if self._debug:
+				print(self.PUB_ID_CONVERTER_URL + '?' + converter_url_data,file=sys.stderr)
+			with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8')) as entriesConn:
 				raw_id_mappings = entriesConn.read()
 				id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
 
@@ -202,7 +204,10 @@ class PubmedEnricher(AbstractPubEnricher):
 			'retmode': 'json'
 		}
 		
-		with request.urlopen(self.ELINKS_URL,data=parse.urlencode(theLinksQuery,doseq=True).encode('utf-8')) as elinksConn:
+		elink_url_data = parse.urlencode(theLinksQuery,doseq=True)
+		if self._debug:
+			print(self.ELINKS_URL+'?'+elink_url_data,file=sys.stderr)
+		with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8')) as elinksConn:
 			raw_json_citation_refs = elinksConn.read()
 			raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
 

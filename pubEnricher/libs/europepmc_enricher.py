@@ -20,19 +20,19 @@ from . import pub_common
 
 class EuropePMCEnricher(AbstractPubEnricher):
 	@overload
-	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
+	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
+	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
 		...
 	
-	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE):
+	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,step_size)
+		super().__init__(cache,step_size,debug)
 	
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
@@ -54,9 +54,12 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				'pageSize': 1000,
 				'query': ' or '.join(raw_query_ids)
 			}
-			#print(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8'),file=sys.stderr)
+			
+			searchURL = self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')
+			#if self._debug:
+			#	print(searchURL,file=sys.stderr)
 			#sys.exit(1)
-			with request.urlopen(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')) as entriesConn:
+			with request.urlopen(searchURL) as entriesConn:
 				raw_json_pubs_mappings = entriesConn.read()
 				
 				#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
@@ -117,8 +120,10 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				'pageSize': 1000,
 				'query': ' or '.join(raw_query_ids)
 			}
-			print(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8'),file=sys.stderr)
-			with request.urlopen(self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')) as entriesConn:
+			searchURL = self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')
+			if self._debug:
+				print(searchURL,file=sys.stderr)
+			with request.urlopen(searchURL) as entriesConn:
 				raw_json_pubs_mappings = entriesConn.read()
 				
 				#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
@@ -183,9 +188,11 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		citrefs = []
 		while page > 0:
 			partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,query,page,pageSize,'json']))
-			print(parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL),file=sys.stderr)
+			citref_url = parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL)
+			if self._debug:
+				print(citref_url,file=sys.stderr)
 			try:
-				with request.urlopen(parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL)) as entriesConn:
+				with request.urlopen(citref_url) as entriesConn:
 					raw_json_citrefs = entriesConn.read()
 					
 					#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')

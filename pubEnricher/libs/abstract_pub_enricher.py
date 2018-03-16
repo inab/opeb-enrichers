@@ -16,14 +16,14 @@ class AbstractPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
 	
 	@overload
-	def __init__(self,cache:str=".",step_size:int=DEFAULT_STEP_SIZE):
+	def __init__(self,cache:str=".",step_size:int=DEFAULT_STEP_SIZE,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,step_size:int=DEFAULT_STEP_SIZE):
+	def __init__(self,cache:PubCache,step_size:int=DEFAULT_STEP_SIZE,debug:bool=False):
 		...
 	
-	def __init__(self,cache,step_size:int=DEFAULT_STEP_SIZE):
+	def __init__(self,cache,step_size:int=DEFAULT_STEP_SIZE,debug:bool=False):
 		if type(cache) is str:
 			self.cache_dir = cache
 			self.pubC = PubCache(self.cache_dir)
@@ -32,6 +32,7 @@ class AbstractPubEnricher(ABC):
 			self.cache_dir = cache.cache_dir
 		
 		self.step_size = step_size
+		self._debug = debug
 		
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
@@ -292,7 +293,116 @@ class AbstractPubEnricher(ABC):
 	def queryCitRefsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		pass
 	
-	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],digestStats:bool=True) -> None:
+	
+	def _reconcileCitRefMetricsBatch(self,query_citations_data:List[Dict[str,Any]],query_hash) -> None:
+		# Update the cache with the new data
+		if len(query_citations_data) > 0:
+			try:
+				new_citations = self.queryCitRefsBatch(query_citations_data)
+			except Exception as anyEx:
+				print("ERROR: Something went wrong",file=sys.stderr)
+				print(anyEx,file=sys.stderr)
+				raise anyEx
+			
+			for new_citation in new_citations:
+				source_id = new_citation['source']
+				_id = new_citation['id']
+				
+				if 'citations' in new_citation:
+					citations = new_citation['citations']
+					citation_count = new_citation['citation_count']
+					# There are cases where no citation could be fetched
+					if citations is not None:
+						self.pubC.setCitationsAndCount(source_id,_id,citations,citation_count)
+					for pub_field in query_hash[(_id,source_id)]:
+						pub_field['citation_count'] = citation_count
+						pub_field['citations'] = citations
+				
+				if 'references' in new_citation:
+					references = new_citation['references']
+					reference_count = new_citation['reference_count']
+					if references is not None:
+						self.pubC.setReferencesAndCount(source_id,_id,references,reference_count)
+					for pub_field in query_hash[(_id,source_id)]:
+						pub_field['reference_count'] = reference_count
+						pub_field['references'] = references
+	
+	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:int=0) -> None:
+		"""
+			This method takes in batches of entries and retrives citations from ids
+			hitCount: number of times cited
+				for each citation it retives
+					id: id of the paper it was cited in
+					source: from where it was retrived i.e MED = publications from PubMed and MEDLINE
+					pubYear: year of publication
+					journalAbbreviation: Journal Abbriviations
+		"""
+		
+		query_citations_data = []
+		query_hash = {}
+		for pub_field in pub_list:
+			_id = pub_field.get('id') #11932250
+			if _id is not None:
+				source_id = pub_field['source']
+				
+				citations, citation_count = self.pubC.getCitationsAndCount(source_id,_id)
+				if citations is not None:
+					# Save now
+					pub_field['citation_count'] = citation_count
+					pub_field['citations'] = citations
+
+				references, reference_count = self.pubC.getReferencesAndCount(source_id,_id)
+				if references is not None:
+					# Save now
+					pub_field['reference_count'] = reference_count
+					pub_field['references'] = references
+				
+				# Query later, without repetitions
+				if citations is None or references is None:
+					query_list = query_hash.setdefault((_id,source_id),[])
+					if len(query_list) == 0:
+						query_citations_data.append(pub_field)
+					query_list.append(pub_field)
+		
+		# Update the cache with the new data
+		self._reconcileCitRefMetricsBatch(query_citations_data,query_hash)
+		
+		# If we have to return the digested stats, compute them here
+		if verbosityLevel<=0:
+			for pub_field in pub_list:
+				citations = pub_field.get('citations')
+				if citations is not None:
+					# Computing the stats
+					citation_stats = {}
+					for citation in citations:
+						year = citation['year']
+						if year in citation_stats:
+							citation_stats[year] += 1
+						else:
+							citation_stats[year] = 1
+					pub_field['citation_stats'] = citation_stats
+					del pub_field['citations']
+				
+				references = pub_field.get('references')
+				if references is not None:
+					# Computing the stats
+					reference_stats = {}
+					for reference in references:
+						year = reference['year']
+						if year in reference_stats:
+							reference_stats[year] += 1
+						else:
+							reference_stats[year] = 1
+					pub_field['reference_stats'] = reference_stats
+					del pub_field['references']
+		elif verbosityLevel > 1:
+			for pub_field in found_pubs:
+				citations = pub_field.get('citations')
+				if citations is not None:
+					self.populatePubIds(citations)
+					self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
+	
+	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],verbosityLevel:int=0) -> None:
 		"""
 			This method takes in batches of entries and retrives citations from ids
 			hitCount: number of times cited
@@ -333,39 +443,10 @@ class AbstractPubEnricher(ABC):
 								query_list.append(pub_field)
 		
 		# Update the cache with the new data
-		if len(query_citations_data) > 0:
-			try:
-				new_citations = self.queryCitRefsBatch(query_citations_data)
-			except Exception as anyEx:
-				print("ERROR: Something went wrong",file=sys.stderr)
-				print(anyEx,file=sys.stderr)
-				raise anyEx
-			
-			for new_citation in new_citations:
-				source_id = new_citation['source']
-				_id = new_citation['id']
-				
-				if 'citations' in new_citation:
-					citations = new_citation['citations']
-					citation_count = new_citation['citation_count']
-					# There are cases where no citation could be fetched
-					if citations is not None:
-						self.pubC.setCitationsAndCount(source_id,_id,citations,citation_count)
-					for pub_field in query_hash[(_id,source_id)]:
-						pub_field['citation_count'] = citation_count
-						pub_field['citations'] = citations
-				
-				if 'references' in new_citation:
-					references = new_citation['references']
-					reference_count = new_citation['reference_count']
-					if references is not None:
-						self.pubC.setReferencesAndCount(source_id,_id,references,reference_count)
-					for pub_field in query_hash[(_id,source_id)]:
-						pub_field['reference_count'] = reference_count
-						pub_field['references'] = references
+		self._reconcileCitRefMetricsBatch(query_citations_data,query_hash)
 		
 		# If we have to return the digested stats, compute them here
-		if digestStats:
+		if verbosityLevel<=0:
 			for entry in entries:
 				for entry_pub in entry['entry_pubs']:
 					found_pubs = entry_pub.get('found_pubs')
@@ -396,8 +477,18 @@ class AbstractPubEnricher(ABC):
 										reference_stats[year] = 1
 								pub_field['reference_stats'] = reference_stats
 								del pub_field['references']
+		elif verbosityLevel > 1:
+			for entry in entries:
+				for entry_pub in entry['entry_pubs']:
+					found_pubs = entry_pub.get('found_pubs')
+					if found_pubs is not None:
+						for pub_field in found_pubs:
+							citations = pub_field.get('citations')
+							if citations is not None:
+								self.populatePubIds(citations)
+								self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
 	
-	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,digestStats:bool=True) -> List[Any]:
+	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,verbosityLevel:int=0) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
@@ -409,10 +500,10 @@ class AbstractPubEnricher(ABC):
 			stop = start+self.step_size
 			entries_slice = entries[start:stop]
 			self.reconcilePubIdsBatch(entries_slice)
-			self.reconcileCitRefMetricsBatch(entries_slice,digestStats)
+			self.reconcileCitRefMetricsBatch(entries_slice,verbosityLevel)
 			self.pubC.sync()
 			if results_dir is not None:
-				filename_prefix = 'entry_' if digestStats else 'fullentry_'
+				filename_prefix = 'entry_' if verbosityLevel == 0  else 'fullentry_'
 				for idx, entry in enumerate(entries_slice):
 					dest_file = os.path.join(results_dir,filename_prefix+str(start+idx)+'.json')
 					with open(dest_file,mode="w",encoding="utf-8") as outentry:
