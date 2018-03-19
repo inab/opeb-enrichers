@@ -109,8 +109,8 @@ class PubmedEnricher(AbstractPubEnricher):
 						mapping['doi'] = doi_id
 						mapping['pmcid'] = pmc_id
 
-				# Avoiding to hit the server too fast
-				time.sleep(0.25)
+				# Avoiding to hit the server too fast (no more than 3 queries per second)
+				time.sleep(0.35)
 				#print(json.dumps(pubmed_mappings,indent=4))
 				# sys.exit(1)
 	
@@ -173,8 +173,8 @@ class PubmedEnricher(AbstractPubEnricher):
 							mappings.append(mapping)
 				
 				# print(json.dumps(entries,indent=4))
-				# Avoiding to hit the server too fast
-				time.sleep(0.25)
+				# Avoiding to hit the server too fast (no more than 3 queries per second)
+				time.sleep(0.35)
 				
 				# Step two: get all the information of these input queries
 				self.populatePubIds(mappings)
@@ -247,7 +247,7 @@ class PubmedEnricher(AbstractPubEnricher):
 							
 							new_citations.append(cite_res)
 			
-			# Avoiding to hit the server too fast
-			time.sleep(0.25)
+			# Avoiding to hit the server too fast (no more than 3 queries per second)
+			time.sleep(0.35)
 		
 		return new_citations

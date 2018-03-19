@@ -8,7 +8,7 @@ from urllib.error import *
 
 from typing import Tuple, List, Dict, Any
 
-class OpenEBenchQueries:
+class OpenEBenchQueries(object):
 	OPENEBENCH_SOURCE ="https://openebench.bsc.es/monitor/rest/search?projection=publications"
 	OPEB_PUB_FIELDS = ( 'pmid' , 'doi' , 'pmcid' )
 	

@@ -19,7 +19,7 @@ SourceId = str
 QualifiedId = Tuple[SourceId,UnqualifiedId]
 PublishId = str
 
-class PubCache:
+class PubCache(object):
 	"""
 		The publications cache management code
 		Currently, it stores the correspondence among PMIDs,

@@ -3,7 +3,7 @@
 import datetime, time
 from urllib import parse
 
-class Timestamps:
+class Timestamps(object):
 	@staticmethod
 	def LocalTimestamp(theDate:datetime=datetime.datetime.now()) -> datetime:
 		utc_offset_sec = time.altzone if time.localtime().tm_isdst else time.timezone
