@@ -4,6 +4,7 @@ import sys
 import json
 import time
 import re
+import configparser
 
 from urllib import request
 from urllib import parse
@@ -18,20 +19,35 @@ from .pub_cache import PubCache
 from . import pub_common
 
 class PubmedEnricher(AbstractPubEnricher):
+	# Due restrictions in the service usage
+	# there cannot be more than 3 queries per second in
+	# unregistered mode, and no more than 10 queries per second
+	# in regisitered mode.
+	UNREGISTERED_MIN_DELAY = 0.34
+	REGISTERED_MIN_DELAY = 0.1
 	@overload
-	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,step_size,debug)
+		super().__init__(cache,config,debug)
+		
+		self.api_key = self.config.get(self.__class__.__name__,'api_key')
+		# Due restrictions in the service usage
+		# there cannot be more than 3 queries per second in
+		# unregistered mode, and no more than 10 queries per second
+		# in regisitered mode.
+		min_request_delay = self.REGISTERED_MIN_DELAY if self.api_key else self.UNREGISTERED_MIN_DELAY
+		if self.request_delay < min_request_delay:
+			self.request_delay = min_request_delay
 	
 	PUBMED_SOURCE='pubmed'
 	
@@ -47,6 +63,9 @@ class PubmedEnricher(AbstractPubEnricher):
 				'retmax': 100000,
 				'rettype': 'abstract'
 			}
+			
+			if self.api_key:
+				theQuery['api_key'] = self.api_key
 			
 			summary_url_data = parse.urlencode(theQuery)
 			if self._debug:
@@ -109,8 +128,8 @@ class PubmedEnricher(AbstractPubEnricher):
 						mapping['doi'] = doi_id
 						mapping['pmcid'] = pmc_id
 
-				# Avoiding to hit the server too fast (no more than 3 queries per second)
-				time.sleep(0.35)
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
 				#print(json.dumps(pubmed_mappings,indent=4))
 				# sys.exit(1)
 	
@@ -147,6 +166,9 @@ class PubmedEnricher(AbstractPubEnricher):
 				'format': 'json'
 			}
 			
+			if self.api_key:
+				theIdQuery['api_key'] = self.api_key
+			
 			converter_url_data = parse.urlencode(theIdQuery)
 			if self._debug:
 				print(self.PUB_ID_CONVERTER_URL + '?' + converter_url_data,file=sys.stderr)
@@ -173,8 +195,8 @@ class PubmedEnricher(AbstractPubEnricher):
 							mappings.append(mapping)
 				
 				# print(json.dumps(entries,indent=4))
-				# Avoiding to hit the server too fast (no more than 3 queries per second)
-				time.sleep(0.35)
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
 				
 				# Step two: get all the information of these input queries
 				self.populatePubIds(mappings)
@@ -200,9 +222,11 @@ class PubmedEnricher(AbstractPubEnricher):
 			'linkname': 'pubmed_pubmed_citedin,pubmed_pubmed_refs',
 			'id': raw_ids,
 			'db': 'pubmed',
-			'tool': 'opeb-enrichers',
 			'retmode': 'json'
 		}
+		
+		if self.api_key:
+			theLinksQuery['api_key'] = self.api_key
 		
 		elink_url_data = parse.urlencode(theLinksQuery,doseq=True)
 		if self._debug:
@@ -247,7 +271,7 @@ class PubmedEnricher(AbstractPubEnricher):
 							
 							new_citations.append(cite_res)
 			
-			# Avoiding to hit the server too fast (no more than 3 queries per second)
-			time.sleep(0.35)
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 		
 		return new_citations

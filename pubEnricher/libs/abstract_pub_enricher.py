@@ -3,6 +3,7 @@
 import sys
 import os
 import json
+import configparser
 
 from abc import ABC, abstractmethod
 
@@ -14,16 +15,17 @@ from . import pub_common
 
 class AbstractPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
+	DEFAULT_REQUEST_DELAY = 0.25
 	
 	@overload
-	def __init__(self,cache:str=".",step_size:int=DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,step_size:int=DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,step_size:int=DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
 		if type(cache) is str:
 			self.cache_dir = cache
 			self.pubC = PubCache(self.cache_dir)
@@ -31,7 +33,12 @@ class AbstractPubEnricher(ABC):
 			self.pubC = cache
 			self.cache_dir = cache.cache_dir
 		
-		self.step_size = step_size
+		# Load at least a config parser
+		self.config = config if config else configparser.ConfigParser()
+		
+		self.step_size = self.config.getint(self.__class__.__name__,'step_size',fallback=self.DEFAULT_STEP_SIZE)
+		request_delay = self.config.getfloat(self.__class__.__name__,'request_delay',fallback=self.DEFAULT_REQUEST_DELAY)
+		self.request_delay = request_delay
 		self._debug = debug
 		
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')

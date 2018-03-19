@@ -5,6 +5,7 @@ import json
 import time
 import math
 import re
+import configparser
 
 from urllib import request
 from urllib import parse
@@ -20,19 +21,19 @@ from . import pub_common
 
 class EuropePMCEnricher(AbstractPubEnricher):
 	@overload
-	def __init__(self,cache:str=".",step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,step_size:int=AbstractPubEnricher.DEFAULT_STEP_SIZE,debug:bool=False):
+	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,step_size,debug)
+		super().__init__(cache,config,debug)
 	
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
@@ -91,7 +92,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 							partial_mapping['doi'] = doi_id
 							partial_mapping['pmcid'] = pmc_id
 				
-				time.sleep(0.25)
+				time.sleep(self.request_delay)
 
 				# print(json.dumps(entries,indent=4))
 	
@@ -159,7 +160,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 							
 							mappings.append(mapping)
 				
-				time.sleep(0.25)
+				time.sleep(self.request_delay)
 
 				# print(json.dumps(entries,indent=4))
 		
@@ -227,7 +228,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					if page < pages:
 						page += 1
 						# Avoiding to be banned
-						time.sleep(0.25)
+						time.sleep(self.request_delay)
 					else:
 						page = 0
 			except HTTPError as e:
