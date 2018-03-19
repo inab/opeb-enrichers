@@ -396,7 +396,7 @@ class AbstractPubEnricher(ABC):
 					pub_field['reference_stats'] = reference_stats
 					del pub_field['references']
 		elif verbosityLevel > 1:
-			for pub_field in found_pubs:
+			for pub_field in pub_list:
 				citations = pub_field.get('citations')
 				if citations is not None:
 					self.populatePubIds(citations)
