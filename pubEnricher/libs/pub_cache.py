@@ -3,21 +3,21 @@
 import os
 import datetime
 import shelve
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, NewType
 
 from . import pub_common
 from .pub_common import Timestamps
 
 # Alias types declaration
-Citation = Dict[str,Any]
-CitationCount = int
-Reference = Dict[str,Any]
-ReferenceCount = int
-Mapping = Dict[str,Any]
-UnqualifiedId = str
-SourceId = str
-QualifiedId = Tuple[SourceId,UnqualifiedId]
-PublishId = str
+Citation = NewType('Citation',Dict[str,Any])
+CitationCount = NewType('CitationCount',int)
+Reference = NewType('Reference',Dict[str,Any])
+ReferenceCount = NewType('ReferenceCount',int)
+Mapping = NewType('Mapping',Dict[str,Any])
+UnqualifiedId = NewType('UnqualifiedId',str)
+SourceId = NewType('SourceId',str)
+QualifiedId = NewType('QualifiedId',Tuple[SourceId,UnqualifiedId])
+PublishId = NewType('PublishId',str)
 
 class PubCache(object):
 	"""
