@@ -11,7 +11,7 @@ from urllib import request
 from urllib import parse
 from urllib.error import *
 
-from typing import overload, Tuple, List, Dict, Any
+from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .abstract_pub_enricher import AbstractPubEnricher
 
@@ -70,6 +70,8 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				
 				pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
 				
+				time.sleep(self.request_delay)
+				
 				resultList = pubs_mappings.get('resultList')
 				if resultList is not None and 'result' in resultList:
 					internal_ids_dict = { (partial_mapping['id'],partial_mapping['source']): partial_mapping  for partial_mapping in partial_mappings }
@@ -91,8 +93,6 @@ class EuropePMCEnricher(AbstractPubEnricher):
 							partial_mapping['pmid'] = pubmed_id
 							partial_mapping['doi'] = doi_id
 							partial_mapping['pmcid'] = pmc_id
-				
-				time.sleep(self.request_delay)
 
 				# print(json.dumps(entries,indent=4))
 	
@@ -236,6 +236,9 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					citrefs = None
 					# We need to go out the loop
 					page = 0
+				elif e.code == 500:
+					# Using a backoff time of 2 seconds when error is hit
+					time.sleep(2)
 				else:
 					raise e
 		
@@ -243,8 +246,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	
 	# Documentation at: https://europepmc.org/RestfulWebService#cites
 	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
-	def queryCitRefsBatch(self,query_citrefs_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
-		new_citrefs=[]
+	def queryCitRefsBatch(self,query_citrefs_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:
 		for pub_field in query_citrefs_data:
 			_id = pub_field.get('id') #11932250
 			if _id is not None:
@@ -264,6 +266,4 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					citref['references'] = references
 					citref['reference_count'] = reference_count
 				
-				new_citrefs.append(citref)
-		
-		return new_citrefs
+				yield citref

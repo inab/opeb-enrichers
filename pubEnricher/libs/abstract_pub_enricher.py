@@ -7,7 +7,7 @@ import configparser
 
 from abc import ABC, abstractmethod
 
-from typing import overload, Tuple, List, Dict, Any
+from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .pub_cache import PubCache
 
@@ -83,17 +83,17 @@ class AbstractPubEnricher(ABC):
 					self.populateMapping(mapping,partial_mapping,onlyYear)
 		
 		if len(populable_mappings) > 0:
-			populable_mappings_clone = list(map(lambda p_m: { 'id': p_m['id'], 'source': p_m['source'] } , populable_mappings))
-			for start in range(0,len(populable_mappings_clone),self.step_size):
+			for start in range(0,len(populable_mappings),self.step_size):
 				stop = start+self.step_size
-				populable_mappings_slice = populable_mappings_clone[start:stop]
-				self.populatePubIdsBatch(populable_mappings_slice)
+				populable_mappings_slice = populable_mappings[start:stop]
+				populable_mappings_clone_slice = list(map(lambda p_m: { 'id': p_m['id'], 'source': p_m['source'] } , populable_mappings_slice))
+				self.populatePubIdsBatch(populable_mappings_clone_slice)
 			
-			for p_m,p_m_c in zip(populable_mappings,populable_mappings_clone):
-				# It is a kind of indicator the 'year' flag
-				if p_m_c.get('year') is not None:
-					self.pubC.setCachedMapping(p_m_c)
-					self.populateMapping(p_m_c,p_m,onlyYear)
+				for p_m,p_m_c in zip(populable_mappings_slice,populable_mappings_clone_slice):
+					# It is a kind of indicator the 'year' flag
+					if p_m_c.get('year') is not None:
+						self.pubC.setCachedMapping(p_m_c)
+						self.populateMapping(p_m_c,p_m,onlyYear)
 			
 	
 	@abstractmethod
@@ -297,7 +297,7 @@ class AbstractPubEnricher(ABC):
 				entry_pub['found_pubs'].extend(winners)
 	
 	@abstractmethod
-	def queryCitRefsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:
 		pass
 	
 	

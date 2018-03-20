@@ -10,7 +10,7 @@ from urllib import request
 from urllib import parse
 from urllib.error import *
 
-from typing import overload, Tuple, List, Dict, Any
+from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .abstract_pub_enricher import AbstractPubEnricher
 
@@ -41,6 +41,7 @@ class PubmedEnricher(AbstractPubEnricher):
 		super().__init__(cache,config,debug)
 		
 		self.api_key = self.config.get(self.__class__.__name__,'api_key')
+		self.elink_step_size = self.config.getint(self.__class__.__name__,'elink_step_size',fallback=self.step_size)
 		# Due restrictions in the service usage
 		# there cannot be more than 3 queries per second in
 		# unregistered mode, and no more than 10 queries per second
@@ -70,9 +71,12 @@ class PubmedEnricher(AbstractPubEnricher):
 			summary_url_data = parse.urlencode(theQuery)
 			if self._debug:
 				print(self.PUB_ID_SUMMARY_URL+'?'+summary_url_data,file=sys.stderr)
-			with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8')) as entriesConn:
+			with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'),timeout=300) as entriesConn:
 				raw_pubmed_mappings = entriesConn.read()
 				pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
+				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
 				
 				results = pubmed_mappings.get('result')
 				if results is not None:
@@ -128,8 +132,6 @@ class PubmedEnricher(AbstractPubEnricher):
 						mapping['doi'] = doi_id
 						mapping['pmcid'] = pmc_id
 
-				# Avoiding to hit the server too fast
-				time.sleep(self.request_delay)
 				#print(json.dumps(pubmed_mappings,indent=4))
 				# sys.exit(1)
 	
@@ -172,9 +174,12 @@ class PubmedEnricher(AbstractPubEnricher):
 			converter_url_data = parse.urlencode(theIdQuery)
 			if self._debug:
 				print(self.PUB_ID_CONVERTER_URL + '?' + converter_url_data,file=sys.stderr)
-			with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8')) as entriesConn:
+			with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'),timeout=300) as entriesConn:
 				raw_id_mappings = entriesConn.read()
 				id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
+				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
 
 				# We record the unpaired DOIs
 				eresult = id_mappings.get('esearchresult')
@@ -195,8 +200,6 @@ class PubmedEnricher(AbstractPubEnricher):
 							mappings.append(mapping)
 				
 				# print(json.dumps(entries,indent=4))
-				# Avoiding to hit the server too fast
-				time.sleep(self.request_delay)
 				
 				# Step two: get all the information of these input queries
 				self.populatePubIds(mappings)
@@ -213,65 +216,71 @@ class PubmedEnricher(AbstractPubEnricher):
 		'pubmed_pubmed_refs': ('references','reference_count'),
 	}
 	
-	def queryCitRefsBatch(self,query_citations_data:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
-		new_citations=[]
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:
+		# First, saving the queries to issue
+		raw_ids = []
+		query_hash = {}
+		for query in query_citations_data:
+			raw_ids.append(query['id'])
+			query_hash[query['id']] = query
 		
-		raw_ids = list(map(lambda query: query['id'], query_citations_data))
-		theLinksQuery = {
-			'dbfrom': 'pubmed',
-			'linkname': 'pubmed_pubmed_citedin,pubmed_pubmed_refs',
-			'id': raw_ids,
-			'db': 'pubmed',
-			'retmode': 'json'
-		}
-		
-		if self.api_key:
-			theLinksQuery['api_key'] = self.api_key
-		
-		elink_url_data = parse.urlencode(theLinksQuery,doseq=True)
-		if self._debug:
-			print(self.ELINKS_URL+'?'+elink_url_data,file=sys.stderr)
-		with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8')) as elinksConn:
-			raw_json_citation_refs = elinksConn.read()
-			raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
-
-			linksets = raw_json_citations.get('linksets')
-			if linksets is not None:
-				query_hash = { query['id']: query  for query in query_citations_data }
-				for linkset in linksets:
-					ids = linkset.get('ids',[])
-					if len(ids) > 0:
-						_id = str(ids[0])
-						linksetdbs = linkset.get('linksetdbs',[])
-						if len(linksetdbs) > 0:
-							query = query_hash[_id]
-							source_id = query['source']
-							cite_res = {
-								'id': _id,
-								'source': source_id
-							}
-							for linksetdb in linksetdbs:
-								linkname = linksetdb['linkname']
-								
-								citrefs_key,citrefs_count_key = self.ELINK_QUERY_MAPPINGS.get(linkname,(None,None))
-								if citrefs_key and citrefs_key not in query:
-									#import sys
-									#print(query_hash,file=sys.stderr)
-									links = linksetdb.get('links',[])
-									
-									citrefs = list(map(lambda uid: {
-										'id': str(uid),	# _id
-										'source': source_id
-									},links))
-									
-									self.populatePubIds(citrefs,onlyYear=True)
-									
-									cite_res[citrefs_key] = citrefs
-									cite_res[citrefs_count_key] = len(citrefs)
-							
-							new_citations.append(cite_res)
+		# Second, query by batches
+		for start in range(0,len(raw_ids),self.elink_step_size):
+			stop = start+self.elink_step_size
+			raw_ids_slice = raw_ids[start:stop]
 			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
-		
-		return new_citations
+			theLinksQuery = {
+				'dbfrom': 'pubmed',
+				'linkname': 'pubmed_pubmed_citedin,pubmed_pubmed_refs',
+				'id': raw_ids_slice,
+				'db': 'pubmed',
+				'retmode': 'json'
+			}
+			
+			if self.api_key:
+				theLinksQuery['api_key'] = self.api_key
+			
+			elink_url_data = parse.urlencode(theLinksQuery,doseq=True)
+			if self._debug:
+				print(self.ELINKS_URL+'?'+elink_url_data,file=sys.stderr)
+			with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8'),timeout=300) as elinksConn:
+				raw_json_citation_refs = elinksConn.read()
+				raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
+				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
+				
+				linksets = raw_json_citations.get('linksets')
+				if linksets is not None:
+					for linkset in linksets:
+						ids = linkset.get('ids',[])
+						if len(ids) > 0:
+							_id = str(ids[0])
+							linksetdbs = linkset.get('linksetdbs',[])
+							if len(linksetdbs) > 0:
+								query = query_hash[_id]
+								source_id = query['source']
+								cite_res = {
+									'id': _id,
+									'source': source_id
+								}
+								for linksetdb in linksetdbs:
+									linkname = linksetdb['linkname']
+									
+									citrefs_key,citrefs_count_key = self.ELINK_QUERY_MAPPINGS.get(linkname,(None,None))
+									if citrefs_key and citrefs_key not in query:
+										#import sys
+										#print(query_hash,file=sys.stderr)
+										links = linksetdb.get('links',[])
+										
+										citrefs = list(map(lambda uid: {
+											'id': str(uid),	# _id
+											'source': source_id
+										},links))
+										
+										self.populatePubIds(citrefs,onlyYear=True)
+										
+										cite_res[citrefs_key] = citrefs
+										cite_res[citrefs_count_key] = len(citrefs)
+								
+								yield cite_res
