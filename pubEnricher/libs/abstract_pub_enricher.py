@@ -130,7 +130,8 @@ class AbstractPubEnricher(ABC):
 					
 					pmc_id = mapping.get('pmcid')
 					if pmc_id is not None:
-						pmc2e.setdefault(pmc_id,{})[source_id] = mapping
+						pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+						pmc2e.setdefault(pmc_id_norm,{})[source_id] = mapping
 				
 				return True
 			else:
@@ -161,11 +162,12 @@ class AbstractPubEnricher(ABC):
 						query_id['doi'] = doi_id_norm
 				
 				pmc_id = entry_pub.get('pmcid')
-				pmc_set_id = (pmc_id,'pmcid')
-				if pmc_id is not None and pmc_set_id not in set_query_ids and pmc_id not in pmc2e:
-					if not _updateCaches(pmc_id):
+				if pmc_id is not None:
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					pmc_set_id = (pmc_id_norm,'pmcid')
+					it pmc_set_id not in set_query_ids and pmc_id_norm not in pmc2e and not _updateCaches(pmc_id_norm):
 						set_query_ids.add(pmc_set_id)
-						query_id['pmcid'] = pmc_id
+						query_id['pmcid'] = pmc_id_norm
 				
 				# Add it when there is something to query about
 				if len(query_id) > 0:
@@ -188,7 +190,8 @@ class AbstractPubEnricher(ABC):
 					
 					pmc_id = mapping.get('pmcid')
 					if pmc_id is not None:
-						pmc2e.setdefault(pmc_id,{})[source_id] = mapping
+						pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+						pmc2e.setdefault(pmc_id_norm,{})[source_id] = mapping
 					
 					doi_id = mapping.get('doi')
 					if doi_id is not None:
@@ -234,8 +237,9 @@ class AbstractPubEnricher(ABC):
 				if pmc_id is not None:
 					curie_id = pub_common.pmcid2curie(pmc_id)
 					initial_curie_ids.append(curie_id)
-					if pmc_id in pmc2e:
-						results.append(pmc2e[pmc_id])
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					if pmc_id_norm in pmc2e:
+						results.append(pmc2e[pmc_id_norm])
 					else:
 						broken_curie_ids.append(curie_id)
 				
