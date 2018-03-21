@@ -35,6 +35,16 @@ def normalize_pmcid(pmc_id):
 	
 	return pmc_id_norm
 
+PMC_PATTERN = re.compile('^PMC(.*)',re.I)
+
+def denormalize_pmcid(pmc_id):
+	found_pat = PMC_PATTERN.search(pmc_id)
+	if found_pat:
+		# It was normalized
+		pmc_id = found_pat.group(1)
+	
+	return pmc_id
+
 def pmcid2curie(pmc_id):
 	pmc_id_norm = normalize_pmcid(pmc_id)
 	return 'pmc:'+pmc_id_norm
