@@ -125,6 +125,7 @@ class PubCache(object):
 		# Then, cleanup of sourceIds cache
 		pubmed_id = mapping.get('pmid')
 		pmc_id = mapping.get('pmcid')
+		pmc_id_norm = pub_common.normalize_pmcid(pmc_id)  if pmc_id else None
 		doi_id = mapping.get('doi')
 		doi_id_norm = pub_common.normalize_doi(doi_id)  if doi_id else None
 		
@@ -137,8 +138,9 @@ class PubCache(object):
 			old_doi_id = None
 			old_pmc_id = None
 		old_doi_id_norm = pub_common.normalize_doi(old_doi_id)  if old_doi_id else None
+		old_pmc_id_norm = pub_common.normalize_pmcid(old_pmc_id)  if old_pmc_id else None
 		
-		for old_id, new_id in [(old_pubmed_id,pubmed_id),(old_doi_id_norm,doi_id_norm),(old_pmc_id,pmc_id)]:
+		for old_id, new_id in [(old_pubmed_id,pubmed_id),(old_doi_id_norm,doi_id_norm),(old_pmc_id_norm,pmc_id)]:
 			# Code needed for mismatches
 			if old_id is not None and old_id != new_id:
 				self.removeSourceId(old_id,source_id,_id,timestamp=mapping_timestamp)

@@ -25,8 +25,19 @@ def doi2curie(doi_id):
 def pmid2curie(pubmed_id):
 	return 'pmid:'+str(pubmed_id)
 
+def normalize_pmcid(pmc_id):
+	"""
+		Normalize PMC ids, in case they lack the PMC prefix
+	"""
+	pmc_id_norm = str(pmc_id)
+	if pmc_id_norm.isdigit():
+		pmc_id_norm = 'PMC'+pmc_id_norm
+	
+	return pmc_id_norm
+
 def pmcid2curie(pmc_id):
-	return 'pmc:'+str(pmc_id)
+	pmc_id_norm = normalize_pmcid(pmc_id)
+	return 'pmc:'+pmc_id_norm
 
 DOI_PATTERN = re.compile('^doi:\s*(.*)',re.I)
 
