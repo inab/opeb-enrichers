@@ -74,6 +74,10 @@ WHERE {{
 	}}
 }} GROUP BY ?internal_id ?internal_idLabel ?pubmed_id ?doi_id ?pmc_id ?publication_date ?journal
 """.format("\n".join(("\t( <"+mapping['id']+"> )"  for mapping in mappings)))
+		
+		if self._debug:
+			print(populateQuery,file=sys.stderr)
+		
 		sparql.setQuery(populateQuery)
 		sparql.setReturnFormat(JSON)
 		results = sparql.query().convert()
@@ -211,6 +215,8 @@ WHERE {{
 	}}
 }} GROUP BY ?internal_id ?internal_idLabel ?pubmed_id ?doi_id ?pmc_id ?publication_date ?journal
 """.format(raw_query_pubmed,raw_query_doi,raw_query_pmc,union_q)
+		if(self._debug):
+			print(queryQuery,file=sys.stderr)
 		sparql.setQuery(queryQuery)
 		sparql.setReturnFormat(JSON)
 		results = sparql.query().convert()
@@ -273,9 +279,15 @@ WHERE {{
 		def _queryAndProcessCitRefs(theQuery,theStoreKeys,results_hash):
 			citrefs_key, citrefs_count_key = theStoreKeys
 			
+			if(self._debug):
+				print(theQuery,file=sys.stderr)
+			
 			sparql.setQuery(theQuery)
 			sparql.setReturnFormat(JSON)
 			sparql_results = sparql.query().convert()
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
 			for res in sparql_results["results"]["bindings"]:
 				internal_id = res['internal_id']['value']
