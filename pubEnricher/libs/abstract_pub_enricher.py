@@ -16,6 +16,7 @@ from . import pub_common
 class AbstractPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
 	DEFAULT_REQUEST_DELAY = 0.25
+	DEFAULT_MAX_RETRIES = 5
 	
 	@overload
 	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
@@ -39,6 +40,11 @@ class AbstractPubEnricher(ABC):
 		self.step_size = self.config.getint(self.__class__.__name__,'step_size',fallback=self.DEFAULT_STEP_SIZE)
 		request_delay = self.config.getfloat(self.__class__.__name__,'request_delay',fallback=self.DEFAULT_REQUEST_DELAY)
 		self.request_delay = request_delay
+		
+		# Maximum number of retries
+		self.max_retries = self.config.getint(self.__class__.__name__,'retries',fallback=self.DEFAULT_MAX_RETRIES)
+
+		# Debug flag
 		self._debug = debug
 		
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')

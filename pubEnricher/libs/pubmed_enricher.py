@@ -25,6 +25,7 @@ class PubmedEnricher(AbstractPubEnricher):
 	# in regisitered mode.
 	UNREGISTERED_MIN_DELAY = 0.34
 	REGISTERED_MIN_DELAY = 0.1
+	
 	@overload
 	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
 		...
@@ -71,66 +72,84 @@ class PubmedEnricher(AbstractPubEnricher):
 			summary_url_data = parse.urlencode(theQuery)
 			if self._debug:
 				print(self.PUB_ID_SUMMARY_URL+'?'+summary_url_data,file=sys.stderr)
-			with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'),timeout=300) as entriesConn:
-				raw_pubmed_mappings = entriesConn.read()
-				pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
-				
-				# Avoiding to hit the server too fast
-				time.sleep(self.request_delay)
-				
-				results = pubmed_mappings.get('result')
-				if results is not None:
-					uids = results.get('uids',[])
-					internal_ids_dict = { mapping['id']: mapping  for mapping in mappings }
-					for uid in uids:
-						_id = str(uid)
-						result = results[_id]
-						mapping = internal_ids_dict.get(_id)
-						#mapping = {
-						#	'id': _id,
-						##	'title': result['title'],
-						##	'journal': result.get('journalTitle'),
-						#	'source': self.PUBMED_SOURCE,
-						#	'query': query_str,
-						##	'year': int(result['pubYear']),
-						##	'pmid': pubmed_id,
-						##	'doi': doi_id,
-						##	'pmcid': pmc_id
-						#}
-						# mapping['source'] = self.PUBMED_SOURCE
-						mapping['title'] = result.get('title')
-						mapping['journal'] = result.get('fulljournalname')
+			
+			# Queries with retries
+			retries = 0
+			while retries <= self.max_retries:
+				try:
+					with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'),timeout=300) as entriesConn:
+						raw_pubmed_mappings = entriesConn.read()
+						pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
+					
+					# Avoiding to hit the server too fast
+					time.sleep(self.request_delay)
+					
+					break
+				except HTTPError as e:
+					if e.code >= 500 and retries < self.max_retries:
+						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+						retries += 1
 						
-						# Computing the publication year
-						pubdate = result.get('sortpubdate')
-						pubyear = None
+						if self._debug:
+							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
 						
-						if pubdate is not None:
-							pubyear = int(pubdate.split('/')[0])
-							
-						mapping['year'] = pubyear
+						time.sleep(2**retries)
+					else:
+						raise e
+			
+			results = pubmed_mappings.get('result')
+			if results is not None:
+				uids = results.get('uids',[])
+				internal_ids_dict = { mapping['id']: mapping  for mapping in mappings }
+				for uid in uids:
+					_id = str(uid)
+					result = results[_id]
+					mapping = internal_ids_dict.get(_id)
+					#mapping = {
+					#	'id': _id,
+					##	'title': result['title'],
+					##	'journal': result.get('journalTitle'),
+					#	'source': self.PUBMED_SOURCE,
+					#	'query': query_str,
+					##	'year': int(result['pubYear']),
+					##	'pmid': pubmed_id,
+					##	'doi': doi_id,
+					##	'pmcid': pmc_id
+					#}
+					# mapping['source'] = self.PUBMED_SOURCE
+					mapping['title'] = result.get('title')
+					mapping['journal'] = result.get('fulljournalname')
+					
+					# Computing the publication year
+					pubdate = result.get('sortpubdate')
+					pubyear = None
+					
+					if pubdate is not None:
+						pubyear = int(pubdate.split('/')[0])
 						
-						mapping['authors'] = [ author.get('name')  for author in result.get('authors',[]) ]
-						
-						# Rescuing the identifiers
-						pubmed_id = None
-						doi_id = None
-						pmc_id = None
-						articleids = result.get('articleids')
-						if articleids is not None:
-							for articleid in result['articleids']:
-								idtype = articleid.get('idtype')
-								if idtype is not None:
-									if idtype == 'pubmed':
-										pubmed_id = articleid.get('value')
-									elif idtype == 'doi':
-										doi_id = articleid.get('value')
-									elif idtype == 'pmc':
-										pmc_id = articleid.get('value')
-						
-						mapping['pmid'] = pubmed_id
-						mapping['doi'] = doi_id
-						mapping['pmcid'] = pmc_id
+					mapping['year'] = pubyear
+					
+					mapping['authors'] = [ author.get('name')  for author in result.get('authors',[]) ]
+					
+					# Rescuing the identifiers
+					pubmed_id = None
+					doi_id = None
+					pmc_id = None
+					articleids = result.get('articleids')
+					if articleids is not None:
+						for articleid in result['articleids']:
+							idtype = articleid.get('idtype')
+							if idtype is not None:
+								if idtype == 'pubmed':
+									pubmed_id = articleid.get('value')
+								elif idtype == 'doi':
+									doi_id = articleid.get('value')
+								elif idtype == 'pmc':
+									pmc_id = articleid.get('value')
+					
+					mapping['pmid'] = pubmed_id
+					mapping['doi'] = doi_id
+					mapping['pmcid'] = pmc_id
 
 				#print(json.dumps(pubmed_mappings,indent=4))
 				# sys.exit(1)
@@ -174,35 +193,53 @@ class PubmedEnricher(AbstractPubEnricher):
 			converter_url_data = parse.urlencode(theIdQuery)
 			if self._debug:
 				print(self.PUB_ID_CONVERTER_URL + '?' + converter_url_data,file=sys.stderr)
-			with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'),timeout=300) as entriesConn:
-				raw_id_mappings = entriesConn.read()
-				id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
-				
-				# Avoiding to hit the server too fast
-				time.sleep(self.request_delay)
 
-				# We record the unpaired DOIs
-				eresult = id_mappings.get('esearchresult')
-				if eresult is not None:
-					idlist = eresult.get('idlist')
-					translationstack = eresult.get('translationstack')
+			# Queries with retries
+			retries = 0
+			while retries <= self.max_retries:
+				try:
+					with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'),timeout=300) as entriesConn:
+						raw_id_mappings = entriesConn.read()
+						id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
+						
+					# Avoiding to hit the server too fast
+					time.sleep(self.request_delay)
 					
-					# First, record the 
-					if idlist is not None and translationstack is not None:
-						for _id , query_str in zip(idlist,translationstack):
-							# This is a very minimal mapping
-							# needed to enrich and relate
-							mapping = {
-								'id': str(_id),
-								'source': self.PUBMED_SOURCE
-								#'query': query_str,
-							}
-							mappings.append(mapping)
+					break
+				except HTTPError as e:
+					if e.code >= 500 and retries < self.max_retries:
+						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+						retries += 1
+						
+						if self._debug:
+							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						
+						time.sleep(2**retries)
+					else:
+						raise e
+			
+			# We record the unpaired DOIs
+			eresult = id_mappings.get('esearchresult')
+			if eresult is not None:
+				idlist = eresult.get('idlist')
+				translationstack = eresult.get('translationstack')
 				
-				# print(json.dumps(entries,indent=4))
-				
-				# Step two: get all the information of these input queries
-				self.populatePubIds(mappings)
+				# First, record the 
+				if idlist is not None and translationstack is not None:
+					for _id , query_str in zip(idlist,translationstack):
+						# This is a very minimal mapping
+						# needed to enrich and relate
+						mapping = {
+							'id': str(_id),
+							'source': self.PUBMED_SOURCE
+							#'query': query_str,
+						}
+						mappings.append(mapping)
+			
+			# print(json.dumps(entries,indent=4))
+			
+			# Step two: get all the information of these input queries
+			self.populatePubIds(mappings)
 		
 		return mappings
 	
@@ -243,44 +280,62 @@ class PubmedEnricher(AbstractPubEnricher):
 			elink_url_data = parse.urlencode(theLinksQuery,doseq=True)
 			if self._debug:
 				print(self.ELINKS_URL+'?'+elink_url_data,file=sys.stderr)
-			with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8'),timeout=300) as elinksConn:
-				raw_json_citation_refs = elinksConn.read()
-				raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
-				
-				# Avoiding to hit the server too fast
-				time.sleep(self.request_delay)
-				
-				linksets = raw_json_citations.get('linksets')
-				if linksets is not None:
-					for linkset in linksets:
-						ids = linkset.get('ids',[])
-						if len(ids) > 0:
-							_id = str(ids[0])
-							linksetdbs = linkset.get('linksetdbs',[])
-							if len(linksetdbs) > 0:
-								query = query_hash[_id]
-								source_id = query['source']
-								cite_res = {
-									'id': _id,
-									'source': source_id
-								}
-								for linksetdb in linksetdbs:
-									linkname = linksetdb['linkname']
-									
-									citrefs_key,citrefs_count_key = self.ELINK_QUERY_MAPPINGS.get(linkname,(None,None))
-									if citrefs_key and citrefs_key not in query:
-										#import sys
-										#print(query_hash,file=sys.stderr)
-										links = linksetdb.get('links',[])
-										
-										citrefs = list(map(lambda uid: {
-											'id': str(uid),	# _id
-											'source': source_id
-										},links))
-										
-										self.populatePubIds(citrefs,onlyYear=True)
-										
-										cite_res[citrefs_key] = citrefs
-										cite_res[citrefs_count_key] = len(citrefs)
+			
+			# Queries with retries
+			retries = 0
+			while retries <= self.max_retries:
+				try:
+					with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8'),timeout=300) as elinksConn:
+						raw_json_citation_refs = elinksConn.read()
+						raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
+						
+					# Avoiding to hit the server too fast
+					time.sleep(self.request_delay)
+					
+					break
+				except HTTPError as e:
+					if e.code >= 500 and retries < self.max_retries:
+						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+						retries += 1
+						
+						if self._debug:
+							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						
+						time.sleep(2**retries)
+					else:
+						raise e
+			
+			linksets = raw_json_citations.get('linksets')
+			if linksets is not None:
+				for linkset in linksets:
+					ids = linkset.get('ids',[])
+					if len(ids) > 0:
+						_id = str(ids[0])
+						linksetdbs = linkset.get('linksetdbs',[])
+						if len(linksetdbs) > 0:
+							query = query_hash[_id]
+							source_id = query['source']
+							cite_res = {
+								'id': _id,
+								'source': source_id
+							}
+							for linksetdb in linksetdbs:
+								linkname = linksetdb['linkname']
 								
-								yield cite_res
+								citrefs_key,citrefs_count_key = self.ELINK_QUERY_MAPPINGS.get(linkname,(None,None))
+								if citrefs_key and citrefs_key not in query:
+									#import sys
+									#print(query_hash,file=sys.stderr)
+									links = linksetdb.get('links',[])
+									
+									citrefs = list(map(lambda uid: {
+										'id': str(uid),	# _id
+										'source': source_id
+									},links))
+									
+									self.populatePubIds(citrefs,onlyYear=True)
+									
+									cite_res[citrefs_key] = citrefs
+									cite_res[citrefs_count_key] = len(citrefs)
+							
+							yield cite_res

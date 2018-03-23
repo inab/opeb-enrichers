@@ -20,6 +20,8 @@ from .pub_cache import PubCache
 from . import pub_common
 
 class EuropePMCEnricher(AbstractPubEnricher):
+	DEFAULT_CITREF_PAGESIZE=100
+	
 	@overload
 	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
 		...
@@ -34,6 +36,9 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		#self._debug_count = 0
 		
 		super().__init__(cache,config,debug)
+		
+		self.citref_step_size = self.config.getint(self.__class__.__name__,'citref_step_size',fallback=self.DEFAULT_CITREF_PAGESIZE)
+	
 	
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
@@ -60,39 +65,57 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			#if self._debug:
 			#	print(searchURL,file=sys.stderr)
 			#sys.exit(1)
-			with request.urlopen(searchURL) as entriesConn:
-				raw_json_pubs_mappings = entriesConn.read()
+
+			# Queries with retries
+			retries = 0
+			while retries <= self.max_retries:
+				try:
+					with request.urlopen(searchURL) as entriesConn:
+						raw_json_pubs_mappings = entriesConn.read()
+						
+						#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
+						#self._debug_count += 1
+						#with open(debug_cache_filename,mode="wb") as d:
+						#	d.write(raw_json_pubs_mappings)
+						
+						pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
 				
-				#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
-				#self._debug_count += 1
-				#with open(debug_cache_filename,mode="wb") as d:
-				#	d.write(raw_json_pubs_mappings)
-				
-				pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
-				
-				time.sleep(self.request_delay)
-				
-				resultList = pubs_mappings.get('resultList')
-				if resultList is not None and 'result' in resultList:
-					internal_ids_dict = { (partial_mapping['id'],partial_mapping['source']): partial_mapping  for partial_mapping in partial_mappings }
-					# Gathering results
-					for result in resultList['result']:
-						_id = result['id']
-						source_id = result['source']
-						partial_mapping = internal_ids_dict.get((_id,source_id))
-						if partial_mapping is not None:
-							pubmed_id = result.get('pmid')
-							doi_id = result.get('doi')
-							pmc_id = result.get('pmcid')
-							authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
-							
-							partial_mapping['title'] = result['title']
-							partial_mapping['journal'] = result.get('journalTitle')
-							partial_mapping['year'] = int(result['pubYear'])
-							partial_mapping['authors'] = authors
-							partial_mapping['pmid'] = pubmed_id
-							partial_mapping['doi'] = doi_id
-							partial_mapping['pmcid'] = pmc_id
+					time.sleep(self.request_delay)
+					
+					break
+				except HTTPError as e:
+					if e.code >= 500 and retries < self.max_retries:
+						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+						retries += 1
+						
+						if self._debug:
+							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						
+						time.sleep(2**retries)
+					else:
+						raise e
+			
+			resultList = pubs_mappings.get('resultList')
+			if resultList is not None and 'result' in resultList:
+				internal_ids_dict = { (partial_mapping['id'],partial_mapping['source']): partial_mapping  for partial_mapping in partial_mappings }
+				# Gathering results
+				for result in resultList['result']:
+					_id = result['id']
+					source_id = result['source']
+					partial_mapping = internal_ids_dict.get((_id,source_id))
+					if partial_mapping is not None:
+						pubmed_id = result.get('pmid')
+						doi_id = result.get('doi')
+						pmc_id = result.get('pmcid')
+						authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
+						
+						partial_mapping['title'] = result['title']
+						partial_mapping['journal'] = result.get('journalTitle')
+						partial_mapping['year'] = int(result['pubYear'])
+						partial_mapping['authors'] = authors
+						partial_mapping['pmid'] = pubmed_id
+						partial_mapping['doi'] = doi_id
+						partial_mapping['pmcid'] = pmc_id
 
 				# print(json.dumps(entries,indent=4))
 	
@@ -124,45 +147,63 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			searchURL = self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')
 			if self._debug:
 				print(searchURL,file=sys.stderr)
-			with request.urlopen(searchURL) as entriesConn:
-				raw_json_pubs_mappings = entriesConn.read()
-				
-				#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
-				#self._debug_count += 1
-				#with open(debug_cache_filename,mode="wb") as d:
-				#	d.write(raw_json_pubs_mappings)
-				
-				pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
-				
-				resultList = pubs_mappings.get('resultList')
-				if resultList is not None and 'result' in resultList:
-					# Gathering results
-					for result in resultList['result']:
-						_id = result['id']
-						pubmed_id = result.get('pmid')
-						doi_id = result.get('doi')
-						pmc_id = result.get('pmcid')
-						source_id = result.get('source')
-						authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
+			
+			# Queries with retries
+			retries = 0
+			while retries <= self.max_retries:
+				try:
+					with request.urlopen(searchURL) as entriesConn:
+						raw_json_pubs_mappings = entriesConn.read()
 						
-						if pubmed_id is not None or doi_id is not None or pmc_id is not None:
-							mapping = {
-								'id': _id,
-								'title': result['title'],
-								'journal': result.get('journalTitle'),
-								'source': source_id,
-								'year': int(result['pubYear']),
-								'authors': authors,
-								'pmid': pubmed_id,
-								'doi': doi_id,
-								'pmcid': pmc_id
-							}
-							
-							mappings.append(mapping)
+						#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
+						#self._debug_count += 1
+						#with open(debug_cache_filename,mode="wb") as d:
+						#	d.write(raw_json_pubs_mappings)
+						
+						pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
 				
-				time.sleep(self.request_delay)
-
-				# print(json.dumps(entries,indent=4))
+					# Avoiding to hit the server too fast
+					time.sleep(self.request_delay)
+					
+					break
+				except HTTPError as e:
+					if e.code >= 500 and retries < self.max_retries:
+						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+						retries += 1
+						
+						if self._debug:
+							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						
+						time.sleep(2**retries)
+					else:
+						raise e
+			
+			resultList = pubs_mappings.get('resultList')
+			if resultList is not None and 'result' in resultList:
+				# Gathering results
+				for result in resultList['result']:
+					_id = result['id']
+					pubmed_id = result.get('pmid')
+					doi_id = result.get('doi')
+					pmc_id = result.get('pmcid')
+					source_id = result.get('source')
+					authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
+					
+					if pubmed_id is not None or doi_id is not None or pmc_id is not None:
+						mapping = {
+							'id': _id,
+							'title': result['title'],
+							'journal': result.get('journalTitle'),
+							'source': source_id,
+							'year': int(result['pubYear']),
+							'authors': authors,
+							'pmid': pubmed_id,
+							'doi': doi_id,
+							'pmcid': pmc_id
+						}
+						
+						mappings.append(mapping)
+			# print(json.dumps(entries,indent=4))
 		
 		#json.dump(mappings,sys.stderr,indent=4,sort_keys=True)
 		#sys.exit(1)
@@ -172,8 +213,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	# Documentation at: https://europepmc.org/RestfulWebService#cites
 	#Url used to retrive the citations, i.e MED is publications from PubMed and MEDLINE view https://europepmc.org/RestfulWebService;jsessionid=7AD7C81CF5F041840F59CF49ABB29994#cites
 	CITREF_ENDPOINT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
-	CITREF_PAGESIZE=1000
-	def querySingleCitRef(self,source_id:str,_id:str,query_mode:bool,pageSize:int=CITREF_PAGESIZE) -> Tuple[List[Dict[str,Any]],int]:
+	def querySingleCitRef(self,source_id:str,_id:str,query_mode:bool) -> Tuple[List[Dict[str,Any]],int]:
 		if query_mode:
 			query = 'citations'
 			citref_list_key = 'citationList'
@@ -183,64 +223,85 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			citref_list_key = 'referenceList'
 			citref_key = 'reference'
 		
+		pageSize = self.citref_step_size
 		page = 1
 		citref_count = None
 		pages = None
 		citrefs = []
-		while page > 0:
+		while page:
 			partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,query,page,pageSize,'json']))
 			citref_url = parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL)
 			if self._debug:
 				print(citref_url,file=sys.stderr)
-			try:
-				with request.urlopen(citref_url) as entriesConn:
-					raw_json_citrefs = entriesConn.read()
-					
-					#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
-					#self._debug_count += 1
-					#with open(debug_cache_filename,mode="wb") as d:
-					#	d.write(raw_json_citrefs)
-					
-					citref_res = json.loads(raw_json_citrefs.decode('utf-8'))
-					if citref_count is None:
-						citref_count = citref_res.get('hitCount',0)
+			
+			# Queries with retries
+			retries = 0
+			while retries <= self.max_retries:
+				try:
+					with request.urlopen(citref_url) as entriesConn:
+						raw_json_citrefs = entriesConn.read()
 						
-						if citref_count == 0 :
-							page = 0
-							pages = 0
-						else:
-							pages = math.ceil(citref_count/pageSize)
+						#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
+						#self._debug_count += 1
+						#with open(debug_cache_filename,mode="wb") as d:
+						#	d.write(raw_json_citrefs)
 						
-					if citref_list_key in citref_res:
-						if citref_key in citref_res[citref_list_key]:
-							citref_list = citref_res[citref_list_key][citref_key]
-							for citref in citref_list:
-								pubYear = citref['pubYear']
-								filtered_citref = {
-									'id': citref.get('id'),
-									'source': citref.get('source')
-								}
-								if pubYear is not None:
-									filtered_citref['year'] = int(pubYear)
-								
-								citrefs.append(filtered_citref)
+						citref_res = json.loads(raw_json_citrefs.decode('utf-8'))
 					
-					if page < pages:
-						page += 1
-						# Avoiding to be banned
-						time.sleep(self.request_delay)
+					# Avoiding to hit the server too fast
+					time.sleep(self.request_delay)
+					
+					break
+				except HTTPError as e:
+					if e.code == 404:
+						citrefs = None
+						# We need to go out the outer loop
+						page = None
+						break
+					elif e.code >= 500 and retries < self.max_retries:
+						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+						retries += 1
+						
+						if self._debug:
+							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						
+						time.sleep(2**retries)
 					else:
-						page = 0
-			except HTTPError as e:
-				if e.code == 404:
-					citrefs = None
-					# We need to go out the loop
-					page = 0
-				elif e.code == 500:
-					# Using a backoff time of 2 seconds when error is hit
-					time.sleep(2)
+						raise e
+			
+			# Quitting from the outer loop
+			if page is None:
+				break
+				
+			if citref_count is None:
+				citref_count = citref_res.get('hitCount',0)
+				
+				if citref_count == 0 :
+					page = None
+					pages = 0
 				else:
-					raise e
+					pages = math.ceil(citref_count/pageSize)
+				
+			if citref_list_key in citref_res:
+				if citref_key in citref_res[citref_list_key]:
+					citref_list = citref_res[citref_list_key][citref_key]
+					for citref in citref_list:
+						pubYear = citref['pubYear']
+						filtered_citref = {
+							'id': citref.get('id'),
+							'source': citref.get('source')
+						}
+						if pubYear is not None:
+							filtered_citref['year'] = int(pubYear)
+						
+						citrefs.append(filtered_citref)
+			
+			if page < pages:
+				# Next Page
+				page += 1
+			else:
+				page = None
+		
 		
 		return citrefs,citref_count				
 	
