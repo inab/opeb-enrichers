@@ -277,7 +277,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				citref_count = citref_res.get('hitCount',0)
 				
 				if citref_count == 0 :
-					page = None
+					page = 0
 					pages = 0
 				else:
 					pages = math.ceil(citref_count/pageSize)
