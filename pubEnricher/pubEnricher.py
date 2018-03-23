@@ -15,6 +15,7 @@ from libs.opeb_queries import OpenEBenchQueries
 from libs.abstract_pub_enricher import AbstractPubEnricher
 from libs.europepmc_enricher import EuropePMCEnricher
 from libs.pubmed_enricher import PubmedEnricher
+from libs.wikidata_enricher import WikidataEnricher
 
 #############
 # Main code #
@@ -23,7 +24,8 @@ from libs.pubmed_enricher import PubmedEnricher
 if __name__ == "__main__":
 	backends = {
 		'europepmc': EuropePMCEnricher,
-		'pubmed': PubmedEnricher
+		'pubmed': PubmedEnricher,
+		'wikidata': WikidataEnricher
 	}
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="count", default=0)

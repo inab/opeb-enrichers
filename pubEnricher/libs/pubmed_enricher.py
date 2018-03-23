@@ -212,8 +212,8 @@ class PubmedEnricher(AbstractPubEnricher):
 	# it merges the answers from several queries
 	ELINKS_URL='https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi'
 	ELINK_QUERY_MAPPINGS = {
-		'pubmed_pubmed_citedin': ('citations','citation_count'),
-		'pubmed_pubmed_refs': ('references','reference_count'),
+		'pubmed_pubmed_citedin': pub_common.CITATIONS_KEYS,
+		'pubmed_pubmed_refs': pub_common.REFERENCES_KEYS
 	}
 	
 	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:

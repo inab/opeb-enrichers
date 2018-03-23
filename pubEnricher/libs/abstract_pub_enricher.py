@@ -165,7 +165,7 @@ class AbstractPubEnricher(ABC):
 				if pmc_id is not None:
 					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
 					pmc_set_id = (pmc_id_norm,'pmcid')
-					it pmc_set_id not in set_query_ids and pmc_id_norm not in pmc2e and not _updateCaches(pmc_id_norm):
+					if pmc_set_id not in set_query_ids and pmc_id_norm not in pmc2e and not _updateCaches(pmc_id_norm):
 						set_query_ids.add(pmc_set_id)
 						query_id['pmcid'] = pmc_id_norm
 				

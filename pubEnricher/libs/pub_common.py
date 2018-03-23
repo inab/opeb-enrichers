@@ -65,6 +65,9 @@ def normalize_doi(doi_id):
 		
 	return doi_id.upper()
 
+CITATIONS_KEYS = ('citations','citation_count')
+REFERENCES_KEYS =  ('references','reference_count')
+
 import warnings
 import functools
 def deprecated(func):
