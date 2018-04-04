@@ -35,17 +35,29 @@ class PubCache(object):
 	
 	OLDEST_CACHE = datetime.timedelta(days=28)
 
-	def __init__(self,cache_dir:str="."):
+	def __init__(self,cache_dir:str=".",prefix:str=None):
 		self.cache_dir = cache_dir
 		
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		self.cache_citations_file = os.path.join(cache_dir,self.DEFAULT_CACHE_CITATIONS_FILE)
-		self.cache_references_file = os.path.join(cache_dir,self.DEFAULT_CACHE_REFERENCES_FILE)
-		self.cache_ids_file = os.path.join(cache_dir,self.DEFAULT_CACHE_PUB_IDS_FILE)
-		self.cache_idmaps_file = os.path.join(cache_dir,self.DEFAULT_CACHE_PUB_IDMAPS_FILE)
+		# Should we set a prefix for the shelves?
+		if prefix is None:
+			cache_citations_file = self.DEFAULT_CACHE_CITATIONS_FILE
+			cache_references_file = self.DEFAULT_CACHE_REFERENCES_FILE
+			cache_pub_ids_file = self.DEFAULT_CACHE_PUB_IDS_FILE
+			cache_pub_idmaps_file = self.DEFAULT_CACHE_PUB_IDMAPS_FILE
+		else:
+			cache_citations_file = prefix + self.DEFAULT_CACHE_CITATIONS_FILE
+			cache_references_file = prefix + self.DEFAULT_CACHE_REFERENCES_FILE
+			cache_pub_ids_file = prefix + self.DEFAULT_CACHE_PUB_IDS_FILE
+			cache_pub_idmaps_file = prefix + self.DEFAULT_CACHE_PUB_IDMAPS_FILE
+		
+		self.cache_citations_file = os.path.join(cache_dir,cache_citations_file)
+		self.cache_references_file = os.path.join(cache_dir,cache_references_file)
+		self.cache_ids_file = os.path.join(cache_dir,cache_pub_ids_file)
+		self.cache_idmaps_file = os.path.join(cache_dir,cache_pub_idmaps_file)
 	
 	def __enter__(self):
 		self.cache_citations = shelve.open(self.cache_citations_file)
