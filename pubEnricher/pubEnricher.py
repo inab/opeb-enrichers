@@ -23,9 +23,9 @@ from libs.wikidata_enricher import WikidataEnricher
 
 if __name__ == "__main__":
 	backends = {
-		'europepmc': EuropePMCEnricher,
-		'pubmed': PubmedEnricher,
-		'wikidata': WikidataEnricher
+		EuropePMCEnricher.Name(): EuropePMCEnricher,
+		PubmedEnricher.Name(): PubmedEnricher,
+		WikidataEnricher.Name(): WikidataEnricher
 	}
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="count", dest="verbosity_level", default=0)

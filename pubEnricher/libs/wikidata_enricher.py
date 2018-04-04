@@ -39,7 +39,12 @@ class WikidataEnricher(AbstractPubEnricher):
 		self.wikidata_step_size = self.config.getint(self.__class__.__name__,'wikidata_step_size',fallback=self.step_size)
 	
 	WIKIDATA_SPARQL_ENDPOINT='https://query.wikidata.org/sparql'
+	# Do not change this constant!!!
 	WIKIDATA_SOURCE='wikidata'
+	
+	@classmethod
+	def Name(cls) -> str:
+		return cls.WIKIDATA_SOURCE
 	
 	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
 		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)

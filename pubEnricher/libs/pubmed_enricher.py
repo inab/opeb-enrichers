@@ -51,7 +51,12 @@ class PubmedEnricher(AbstractPubEnricher):
 		if self.request_delay < min_request_delay:
 			self.request_delay = min_request_delay
 	
+	# Do not change this constant!!!
 	PUBMED_SOURCE='pubmed'
+	
+	@classmethod
+	def Name(cls) -> str:
+		return cls.PUBMED_SOURCE
 	
 	# Documented at: https://www.ncbi.nlm.nih.gov/books/NBK25499/#_chapter4_ESummary_
 	PUB_ID_SUMMARY_URL='https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi'

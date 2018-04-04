@@ -39,7 +39,10 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		
 		self.citref_step_size = self.config.getint(self.__class__.__name__,'citref_step_size',fallback=self.DEFAULT_CITREF_PAGESIZE)
 	
-	
+	@classmethod
+	def Name(cls) -> str:
+		return 'europepmc'
+		
 	# Documentation at: https://europepmc.org/RestfulWebService#search
 	# Documentation at: https://europepmc.org/docs/EBI_Europe_PMC_Web_Service_Reference.pdf
 	OPENPMC_SEARCH_URL = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search'

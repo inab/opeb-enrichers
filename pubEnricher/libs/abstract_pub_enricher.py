@@ -61,6 +61,11 @@ class AbstractPubEnricher(ABC):
 		self.pubC.__exit__(exc_type, exc_val, exc_tb)
 	
 	@classmethod
+	@abstractmethod
+	def Name(cls) -> str:
+		pass
+	
+	@classmethod
 	def populateMapping(cls,base_mapping:Dict[str,Any],dest_mapping:Dict[str,Any],onlyYear:bool=False) -> None:
 		if onlyYear:
 			dest_mapping['year'] = base_mapping.get('year')
