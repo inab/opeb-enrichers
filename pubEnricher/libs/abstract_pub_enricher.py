@@ -73,14 +73,12 @@ class AbstractPubEnricher(ABC):
 	
 	def populatePubIds(self,partial_mappings:List[Dict[str,Any]],onlyYear:bool=False) -> None:
 		populable_mappings = []
-		if onlyYear:
+		
+		for partial_mapping in partial_mappings:
 			# We are interested only in the year facet
-			for partial_mapping in partial_mappings:
-				pubYear = partial_mapping.get('year')
-				if pubYear is None:
-					populable_mappings.append(partial_mapping)
-		else:
-			for partial_mapping in partial_mappings:
+			# as it is a kind of indicator
+			pubYear = partial_mapping.get('year')
+			if pubYear is None or not onlyYear:
 				mapping = self.pubC.getCachedMapping(partial_mapping['source'],partial_mapping['id'])
 				
 				if mapping is None:
