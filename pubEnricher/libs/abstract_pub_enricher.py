@@ -78,8 +78,9 @@ class AbstractPubEnricher(ABC):
 			# We are interested only in the year facet
 			# as it is a kind of indicator
 			pubYear = partial_mapping.get('year')
-			if pubYear is None or not onlyYear:
-				mapping = self.pubC.getCachedMapping(partial_mapping['source'],partial_mapping['id'])
+			_id = partial_mapping.get('id')
+			if _id is not None and (pubYear is None or not onlyYear):
+				mapping = self.pubC.getCachedMapping(partial_mapping['source'],_id)
 				
 				if mapping is None:
 					populable_mappings.append(partial_mapping)
@@ -415,6 +416,12 @@ class AbstractPubEnricher(ABC):
 				citations = pub_field.get('citations')
 				if citations is not None:
 					self.populatePubIds(citations)
+					
+				references = pub_field.get('references')
+				if references is not None:
+					self.populatePubIds(references)
+				
+				if verbosityLevel >=2:
 					self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
 	
 	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],verbosityLevel:int=0) -> None:
@@ -501,6 +508,12 @@ class AbstractPubEnricher(ABC):
 							citations = pub_field.get('citations')
 							if citations is not None:
 								self.populatePubIds(citations)
+							
+							references = pub_field.get('references')
+							if references is not None:
+								self.populatePubIds(references)
+							
+							if verbosityLevel >=2:
 								self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
 	
 	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,verbosityLevel:int=0) -> List[Any]:

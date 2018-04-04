@@ -28,7 +28,8 @@ if __name__ == "__main__":
 		'wikidata': WikidataEnricher
 	}
 	parser = argparse.ArgumentParser()
-	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="count", default=0)
+	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="count", dest="verbosity_level", default=0)
+	parser.add_argument("--fully-annotated", help="Return the reference and citation results fully annotated, not only the year", action="store_true", dest="do_annotate_citations", default=False)
 	parser.add_argument("-d","--debug", help="Show the URL statements", action="store_true", default=False)
 	parser.add_argument("-b","--backend", help="Choose the enrichment backend", choices=backends, default='europepmc')
 	parser.add_argument("-C","--config", help="Config file to pass setup parameters to the different enrichers", nargs=1,dest="config_filename")
@@ -41,12 +42,24 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 	
 	# Now, let's work!
+	verbosity_level = args.verbosity_level
 	output_file = args.results_file[0] if args.results_file is not None else None
 	config_filename = args.config_filename[0] if args.config_filename is not None else None
 	save_opeb_filename = args.save_opeb_filename[0] if args.save_opeb_filename is not None else None
 	load_opeb_filename = args.load_opeb_filename[0] if args.load_opeb_filename is not None else None
 	cache_dir = args.cacheDir
 	debug = args.debug
+	
+	# Setting the internal verbosity level
+	if args.do_annotate_citations:
+		# If the flag is set, the verbosity level is raised to 1
+		# when the verbosity flag was not set
+		if verbosity_level == 0:
+			verbosity_level = 1
+		
+		# This half-verbosity increment tells to populate the citations
+		# with metadata, but not the references or citations
+		verbosity_level += 0.5
 	
 	# Parsing the config file
 	if config_filename is None:
@@ -68,7 +81,7 @@ if __name__ == "__main__":
 		results_dir = args.results_dir[0] if args.results_dir is not None else None
 		if results_dir is not None:
 			os.makedirs(os.path.abspath(results_dir),exist_ok=True)
-		entries = pub.reconcilePubIds(fetchedEntries,results_dir,args.full)
+		entries = pub.reconcilePubIds(fetchedEntries,results_dir,verbosity_level)
 
 		#print(len(fetchedEntries))
 		#print(json.dumps(fetchedEntries,indent=4))
