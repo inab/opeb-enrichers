@@ -67,7 +67,7 @@ WHERE {{
 	OPTIONAL {{ ?internal_id wdt:P577 ?publication_date. }}
 	OPTIONAL {{
 		?internal_id wdt:P1433 ?journal_id.
-		?journal_id rdfs:label ?journal .
+		?journal_id wdt:P1476 ?journal .
 	}}
 	SERVICE wikibase:label {{
 		bd:serviceParam wikibase:language "en".
@@ -208,7 +208,7 @@ WHERE {{
 	OPTIONAL {{ ?internal_id wdt:P577 ?publication_date. }}
 	OPTIONAL {{
 		?internal_id wdt:P1433 ?journal_id.
-		?journal_id rdfs:label ?journal .
+		?journal_id wdt:P1476 ?journal .
 	}}
 	SERVICE wikibase:label {{
 		bd:serviceParam wikibase:language "en".
