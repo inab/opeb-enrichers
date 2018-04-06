@@ -27,22 +27,25 @@ class PubmedEnricher(AbstractPubEnricher):
 	REGISTERED_MIN_DELAY = 0.1
 	
 	@overload
-	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,config,debug)
+		super().__init__(cache,prefix,config,debug)
 		
-		self.api_key = self.config.get(self.__class__.__name__,'api_key')
-		self.elink_step_size = self.config.getint(self.__class__.__name__,'elink_step_size',fallback=self.step_size)
+		# The section name is the symbolic name given to this class
+		section_name = self.Name()
+		
+		self.api_key = self.config.get(section_name,'api_key')
+		self.elink_step_size = self.config.getint(section_name,'elink_step_size',fallback=self.step_size)
 		# Due restrictions in the service usage
 		# there cannot be more than 3 queries per second in
 		# unregistered mode, and no more than 10 queries per second

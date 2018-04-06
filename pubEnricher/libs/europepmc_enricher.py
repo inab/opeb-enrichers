@@ -23,21 +23,24 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	DEFAULT_CITREF_PAGESIZE=100
 	
 	@overload
-	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,config,debug)
+		super().__init__(cache,prefix,config,debug)
 		
-		self.citref_step_size = self.config.getint(self.__class__.__name__,'citref_step_size',fallback=self.DEFAULT_CITREF_PAGESIZE)
+		# The section name is the symbolic name given to this class
+		section_name = self.Name()
+		
+		self.citref_step_size = self.config.getint(section_name,'citref_step_size',fallback=self.DEFAULT_CITREF_PAGESIZE)
 	
 	@classmethod
 	def Name(cls) -> str:

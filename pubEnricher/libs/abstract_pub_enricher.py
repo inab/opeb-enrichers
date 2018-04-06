@@ -19,17 +19,17 @@ class AbstractPubEnricher(ABC):
 	DEFAULT_MAX_RETRIES = 5
 	
 	@overload
-	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		if type(cache) is str:
 			self.cache_dir = cache
-			self.pubC = PubCache(self.cache_dir)
+			self.pubC = PubCache(self.cache_dir,prefix=prefix)
 		else:
 			self.pubC = cache
 			self.cache_dir = cache.cache_dir
@@ -37,12 +37,15 @@ class AbstractPubEnricher(ABC):
 		# Load at least a config parser
 		self.config = config if config else configparser.ConfigParser()
 		
-		self.step_size = self.config.getint(self.__class__.__name__,'step_size',fallback=self.DEFAULT_STEP_SIZE)
-		request_delay = self.config.getfloat(self.__class__.__name__,'request_delay',fallback=self.DEFAULT_REQUEST_DELAY)
+		# The section name is the symbolic name given to this class
+		section_name = self.Name()
+		
+		self.step_size = self.config.getint(section_name,'step_size',fallback=self.DEFAULT_STEP_SIZE)
+		request_delay = self.config.getfloat(section_name,'request_delay',fallback=self.DEFAULT_REQUEST_DELAY)
 		self.request_delay = request_delay
 		
 		# Maximum number of retries
-		self.max_retries = self.config.getint(self.__class__.__name__,'retries',fallback=self.DEFAULT_MAX_RETRIES)
+		self.max_retries = self.config.getint(section_name,'retries',fallback=self.DEFAULT_MAX_RETRIES)
 
 		# Debug flag
 		self._debug = debug
@@ -348,7 +351,7 @@ class AbstractPubEnricher(ABC):
 						pub_field['reference_count'] = reference_count
 						pub_field['references'] = references
 	
-	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:int=0) -> None:
+	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
 		"""
 			This method takes in batches of entries and retrives citations from ids
 			hitCount: number of times cited
@@ -429,7 +432,7 @@ class AbstractPubEnricher(ABC):
 				if verbosityLevel >=2:
 					self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
 	
-	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],verbosityLevel:int=0) -> None:
+	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
 		"""
 			This method takes in batches of entries and retrives citations from ids
 			hitCount: number of times cited
@@ -521,7 +524,7 @@ class AbstractPubEnricher(ABC):
 							if verbosityLevel >=2:
 								self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
 	
-	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,verbosityLevel:int=0) -> List[Any]:
+	def reconcilePubIds(self,entries:List[Any],results_dir:str=None,verbosityLevel:float=0) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding

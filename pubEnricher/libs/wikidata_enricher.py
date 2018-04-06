@@ -23,24 +23,28 @@ def _extractYear(pubdateStr):
 
 class WikidataEnricher(AbstractPubEnricher):
 	@overload
-	def __init__(self,cache:str=".",config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
-	def __init__(self,cache,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,config,debug)
-		self.wikidata_step_size = self.config.getint(self.__class__.__name__,'wikidata_step_size',fallback=self.step_size)
+		super().__init__(cache,prefix,config,debug)
+		
+		# The section name is the symbolic name given to this class
+		section_name = self.Name()
+		
+		self.wikidata_step_size = self.config.getint(section_name,'wikidata_step_size',fallback=self.step_size)
 	
-	WIKIDATA_SPARQL_ENDPOINT='https://query.wikidata.org/sparql'
 	# Do not change this constant!!!
 	WIKIDATA_SOURCE='wikidata'
+	WIKIDATA_SPARQL_ENDPOINT='https://query.wikidata.org/sparql'
 	
 	@classmethod
 	def Name(cls) -> str:
