@@ -12,26 +12,19 @@ import configparser
 
 from libs.pub_common import *
 from libs.opeb_queries import OpenEBenchQueries
-from libs.abstract_pub_enricher import AbstractPubEnricher
 from libs.europepmc_enricher import EuropePMCEnricher
-from libs.pubmed_enricher import PubmedEnricher
-from libs.wikidata_enricher import WikidataEnricher
+from libs.meta_pub_enricher import MetaEnricher,DEFAULT_BACKEND,RECOGNIZED_BACKENDS_HASH
 
 #############
 # Main code #
 #############
 
 if __name__ == "__main__":
-	backends = {
-		EuropePMCEnricher.Name(): EuropePMCEnricher,
-		PubmedEnricher.Name(): PubmedEnricher,
-		WikidataEnricher.Name(): WikidataEnricher
-	}
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-F","--full", help="Return the full gathered citation results, not the citation stats by year", action="count", dest="verbosity_level", default=0)
 	parser.add_argument("--fully-annotated", help="Return the reference and citation results fully annotated, not only the year", action="store_true", dest="do_annotate_citations", default=False)
 	parser.add_argument("-d","--debug", help="Show the URL statements", action="store_true", default=False)
-	parser.add_argument("-b","--backend", help="Choose the enrichment backend", choices=backends, default='europepmc')
+	parser.add_argument("-b","--backend", help="Choose the enrichment backend", choices=RECOGNIZED_BACKENDS_HASH, default='europepmc')
 	parser.add_argument("-C","--config", help="Config file to pass setup parameters to the different enrichers", nargs=1,dest="config_filename")
 	parser.add_argument("--save-opeb", help="Save the OpenEBench content to a file", nargs=1,dest="save_opeb_filename")
 	parser.add_argument("--use-opeb", help="Use the OpenEBench content from a file instead of network", nargs=1,dest="load_opeb_filename")
@@ -71,8 +64,8 @@ if __name__ == "__main__":
 	
 	# Creating the cache directory, in case it does not exist
 	os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
-	ChosenEnricher = backends.get(args.backend,EuropePMCEnricher)
-	with ChosenEnricher(cache_dir,config,debug=debug) as pub:
+	ChosenEnricher = RECOGNIZED_BACKENDS_HASH.get(args.backend,DEFAULT_BACKEND)
+	with ChosenEnricher(cache_dir,config=config,debug=debug) as pub:
 		# Step 1: fetch the entries with associated pubmed
 		opeb_q = OpenEBenchQueries(load_opeb_filename,save_opeb_filename)
 		fetchedEntries = opeb_q.fetchPubIds()
@@ -81,8 +74,15 @@ if __name__ == "__main__":
 		results_dir = args.results_dir[0] if args.results_dir is not None else None
 		if results_dir is not None:
 			os.makedirs(os.path.abspath(results_dir),exist_ok=True)
-		entries = pub.reconcilePubIds(fetchedEntries,results_dir,verbosity_level)
-
+		try:
+			entries = pub.reconcilePubIds(fetchedEntries,results_dir,verbosity_level)
+		except Exception as anyEx:
+			print("ERROR: Something went wrong",file=sys.stderr)
+			print(anyEx,file=sys.stderr)
+			import traceback
+			traceback.print_exc(file=sys.stderr)
+			raise anyEx
+		
 		#print(len(fetchedEntries))
 		#print(json.dumps(fetchedEntries,indent=4))
 		if output_file is not None:
