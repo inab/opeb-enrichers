@@ -86,7 +86,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				try:
 					with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'),timeout=300) as entriesConn:
-						raw_pubmed_mappings = entriesConn.read()
+						raw_pubmed_mappings = pub_common.full_http_read(entriesConn)
 						pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
 					
 					# Avoiding to hit the server too fast
@@ -207,7 +207,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				try:
 					with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'),timeout=300) as entriesConn:
-						raw_id_mappings = entriesConn.read()
+						raw_id_mappings = pub_common.full_http_read(entriesConn)
 						id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
 						
 					# Avoiding to hit the server too fast
@@ -294,7 +294,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				try:
 					with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8'),timeout=300) as elinksConn:
-						raw_json_citation_refs = elinksConn.read()
+						raw_json_citation_refs = pub_common.full_http_read(elinksConn)
 						raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
 						
 					# Avoiding to hit the server too fast

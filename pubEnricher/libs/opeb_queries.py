@@ -6,6 +6,8 @@ from urllib import request
 from urllib import parse
 from urllib.error import *
 
+from .	import pub_common
+
 from typing import Tuple, List, Dict, Any
 
 class OpenEBenchQueries(object):
@@ -55,8 +57,11 @@ class OpenEBenchQueries(object):
 				with open(self.load_opeb_filename,mode="rb") as resp:
 					raw_opeb = resp.read()
 			else:
-				with request.urlopen(sourceURL) as resp:
-					raw_opeb = resp.read()
+				req = request.Request(sourceURL)
+				# This fixes an issue, as the API answers in several flavours
+				req.add_header('Accept','application/json')
+				with request.urlopen(req) as resp:
+					raw_opeb = pub_common.full_http_read(resp)
 			
 			if self.save_opeb_filename:
 				with open(self.save_opeb_filename,mode="wb") as savefile:
@@ -68,6 +73,8 @@ class OpenEBenchQueries(object):
 
 		except URLError as ue:
 			print("ERROR: could not fetch {0}".format(sourceURL),file=sys.stderr)
+			import traceback
+			traceback.print_exc(file=sys.stderr)
 			raise ue
 		except json.JSONDecodeError as jde:
 			print("ERROR: Bad-formed JSON: "+jde.msg)

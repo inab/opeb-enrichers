@@ -68,6 +68,30 @@ def normalize_doi(doi_id):
 CITATIONS_KEYS = ('citations','citation_count')
 REFERENCES_KEYS =  ('references','reference_count')
 
+
+import http.client
+
+# This method does the different reads and retries
+# in case of partial contents
+def full_http_read(request) -> bytes:
+	# The original bytes
+	response = b''
+	while True:
+		try:
+			# Try getting it
+			responsePart = request.read()
+		except http.client.IncompleteRead as icread:
+			# Getting at least the partial content
+			response += icread.partial
+			continue
+		else:
+			# In this case, saving all
+			response += responsePart
+		break
+
+	return response
+
+
 import warnings
 import functools
 def deprecated(func):

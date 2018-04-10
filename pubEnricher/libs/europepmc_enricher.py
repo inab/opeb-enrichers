@@ -77,7 +77,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				try:
 					with request.urlopen(searchURL) as entriesConn:
-						raw_json_pubs_mappings = entriesConn.read()
+						raw_json_pubs_mappings = pub_common.full_http_read(entriesConn)
 						
 						#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
 						#self._debug_count += 1
@@ -159,7 +159,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				try:
 					with request.urlopen(searchURL) as entriesConn:
-						raw_json_pubs_mappings = entriesConn.read()
+						raw_json_pubs_mappings = pub_common.full_http_read(entriesConn)
 						
 						#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
 						#self._debug_count += 1
@@ -245,7 +245,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				try:
 					with request.urlopen(citref_url) as entriesConn:
-						raw_json_citrefs = entriesConn.read()
+						raw_json_citrefs = pub_common.full_http_read(entriesConn)
 						
 						#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
 						#self._debug_count += 1
