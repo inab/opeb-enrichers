@@ -8,6 +8,8 @@ import configparser
 from collections import OrderedDict
 import copy
 
+#from multiprocessing import Process, Queue, Lock
+
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .pub_cache import PubCache
@@ -129,7 +131,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		# We only need the reduced form for the next step
 		merged_pub = self._mergeFoundPubs(found_pubs)
 		# When no suitable entry is found, use the first one (if any)
-		opeb_entry_pub['found_pubs'] = [ merged_pub ]  if merged_pub or not found_pubs else found_pubs[0]
+		opeb_entry_pub['found_pubs'] = [ merged_pub ]  if merged_pub or not found_pubs else [ found_pubs[0] ]
 		
 		#print('-begin-',file=sys.stderr)
 		#import json
@@ -257,23 +259,34 @@ class MetaEnricher(SkeletonPubEnricher):
 		#print('-end-',file=sys.stderr)
 		return resolved_citrefs
 	
-	def reconcileCitRefMetricsBatch(self,opeb_entries:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
-		# This phase depends on the results from the previous one
-		# First, cluster by enricher
+	KEEP_KEYS=('source', 'id', 'year', 'enricher')
+	def _cleanCitRefs(self,citrefs:List[Dict[str,Any]]) -> None:
+		for citref in citrefs:
+			for key in filter(lambda key: key not in self.KEEP_KEYS,citref.keys()):
+				del citref[key]
+	
+	def listReconcileCitRefMetricsBatch(self,linear_pubs:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+		"""
+			This method takes in batches of found publications and retrieves citations from ids
+			hitCount: number of times cited
+				for each citation it retives
+					id: id of the paper it was cited in
+					source: from where it was retrived i.e MED = publications from PubMed and MEDLINE
+					pubYear: year of publication
+					journalAbbreviation: Journal Abbriviations
+		"""
 		clustered_pubs = {}
-		linear_pubs = []
-		for entry_pubs in map(lambda opeb_entry: opeb_entry['entry_pubs'],opeb_entries):
-			linear_pubs.extend(entry_pubs)
-			for entry_pub in entry_pubs:
-				for pub in entry_pub['found_pubs']:
-					for base_pub in pub['base_pubs']:
-						clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
+		for pub in linear_pubs:
+			# This can happen when no result was found
+			if 'base_pubs' in pub:
+				for base_pub in pub['base_pubs']:
+					clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
 		
 		# After clustering, issue the batch calls to each enricher
 		for enricher_name, base_pubs in clustered_pubs.items():
 			enricher = self.enrichers[enricher_name]
 			# for now, ignore the verbosity level, and use the one we need: 1.5
-			enricher.reconcileCitRefMetricsBatch([{'entry_pubs': [{'found_pubs': base_pubs}]}],1.5)
+			enricher.listReconcileCitRefMetricsBatch(base_pubs,1.5)
 		
 		#print('-cbegin-',file=sys.stderr)
 		#import json
@@ -282,22 +295,37 @@ class MetaEnricher(SkeletonPubEnricher):
 		#sys.exit(1)
 		
 		# At last, reconcile!!!!!
-		for pub in linear_pubs:
-			for merged_pub in pub['found_pubs']:
-				merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: 'references' in ref_pub, merged_pub['base_pubs'])),verbosityLevel)
-				merged_pub['references'] = merged_references
-				merged_pub['reference_count'] = len(merged_references)
-				merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: 'citations' in cit_pub, merged_pub['base_pubs'])),verbosityLevel)
-				merged_pub['citations'] = merged_citations
-				merged_pub['citation_count'] = len(merged_citations)
-				for base_pub in merged_pub['base_pubs']:
+		for merged_pub in linear_pubs:
+			base_pubs = merged_pub.get('base_pubs',[])
+			if base_pubs:
+				merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: 'references' in ref_pub, base_pubs)),verbosityLevel)
+				merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: 'citations' in cit_pub, base_pubs)),verbosityLevel)
+				
+				# Cleanup
+				for base_pub in base_pubs:
 					for key in 'references','reference_count','citations','citation_count':
-						del base_pub[key]
+						base_pub.pop(key,None)
+			else:
+				merged_references = []
+				merged_citations = []
+			
+			merged_pub['reference_count'] = len(merged_references)
+			merged_pub['citation_count'] = len(merged_citations)
+			
+			if verbosityLevel<=0:
+				merged_pub['citation_stats'] = self._citrefStats(merged_citations)
+				merged_pub['reference_stats'] = self._citrefStats(merged_references)
+			else:
+				merged_pub['references'] = merged_references
+				merged_pub['citations'] = merged_citations
+				
+				# Remove any key which is not the 'source', 'id', 'year' or 'enricher'
+				if verbosityLevel==1:
+					self._cleanCitRefs(merged_references)
+					self._cleanCitRefs(merged_citations)
+				elif verbosityLevel >=2:
+					self.listReconcileCitRefMetricsBatch(merged_citations,verbosityLevel-1)
 
-		#print('-begin-',file=sys.stderr)
-		#import json
-		#print(json.dumps(opeb_entries,indent=4),file=sys.stderr)
-		#print('-end-',file=sys.stderr)
 
 # This is needed for the program itself
 DEFAULT_BACKEND = EuropePMCEnricher

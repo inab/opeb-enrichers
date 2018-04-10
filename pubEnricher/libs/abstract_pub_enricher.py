@@ -329,7 +329,7 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 	
 	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
 		"""
-			This method takes in batches of entries and retrives citations from ids
+			This method takes in batches of found publications and it retrieves citations from ids
 			hitCount: number of times cited
 				for each citation it retives
 					id: id of the paper it was cited in
@@ -370,31 +370,13 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 		# If we have to return the digested stats, compute them here
 		if verbosityLevel<=0:
 			for pub_field in pub_list:
-				citations = pub_field.get('citations')
-				if citations is not None:
-					# Computing the stats
-					citation_stats = {}
-					for citation in citations:
-						year = citation['year']
-						if year in citation_stats:
-							citation_stats[year] += 1
-						else:
-							citation_stats[year] = 1
-					pub_field['citation_stats'] = citation_stats
-					del pub_field['citations']
+				citations = pub_field.pop('citations',[])
+				# Computing the stats
+				pub_field['citation_stats'] = self._citrefStats(citations)
 				
-				references = pub_field.get('references')
-				if references is not None:
-					# Computing the stats
-					reference_stats = {}
-					for reference in references:
-						year = reference['year']
-						if year in reference_stats:
-							reference_stats[year] += 1
-						else:
-							reference_stats[year] = 1
-					pub_field['reference_stats'] = reference_stats
-					del pub_field['references']
+				references = pub_field.pop('references',[])
+				# Computing the stats
+				pub_field['reference_stats'] = self._citrefStats(references)
 		elif verbosityLevel > 1:
 			for pub_field in pub_list:
 				citations = pub_field.get('citations')
@@ -408,94 +390,3 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 				if verbosityLevel >=2:
 					self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)
 	
-	def reconcileCitRefMetricsBatch(self,entries:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
-		"""
-			This method takes in batches of entries and retrives citations from ids
-			hitCount: number of times cited
-				for each citation it retives
-					id: id of the paper it was cited in
-					source: from where it was retrived i.e MED = publications from PubMed and MEDLINE
-					pubYear: year of publication
-					journalAbbreviation: Journal Abbriviations
-		"""
-		
-		query_citations_data = []
-		query_hash = {}
-		for entry in entries:
-			for entry_pub in entry['entry_pubs']:
-				if entry_pub['found_pubs'] is not None:
-					for pub_field in entry_pub['found_pubs']:
-						_id = pub_field.get('id') #11932250
-						if _id is not None:
-							source_id = pub_field['source']
-							
-							citations, citation_count = self.pubC.getCitationsAndCount(source_id,_id)
-							if citations is not None:
-								# Save now
-								pub_field['citation_count'] = citation_count
-								pub_field['citations'] = citations
-
-							references, reference_count = self.pubC.getReferencesAndCount(source_id,_id)
-							if references is not None:
-								# Save now
-								pub_field['reference_count'] = reference_count
-								pub_field['references'] = references
-							
-							# Query later, without repetitions
-							if citations is None or references is None:
-								query_list = query_hash.setdefault((_id,source_id),[])
-								if len(query_list) == 0:
-									query_citations_data.append(pub_field)
-								query_list.append(pub_field)
-		
-		# Update the cache with the new data
-		self._reconcileCitRefMetricsBatch(query_citations_data,query_hash)
-		
-		# If we have to return the digested stats, compute them here
-		if verbosityLevel<=0:
-			for entry in entries:
-				for entry_pub in entry['entry_pubs']:
-					found_pubs = entry_pub.get('found_pubs')
-					if found_pubs is not None:
-						for pub_field in found_pubs:
-							citations = pub_field.get('citations')
-							if citations is not None:
-								# Computing the stats
-								citation_stats = {}
-								for citation in citations:
-									year = citation['year']
-									if year in citation_stats:
-										citation_stats[year] += 1
-									else:
-										citation_stats[year] = 1
-								pub_field['citation_stats'] = citation_stats
-								del pub_field['citations']
-							
-							references = pub_field.get('references')
-							if references is not None:
-								# Computing the stats
-								reference_stats = {}
-								for reference in references:
-									year = reference['year']
-									if year in reference_stats:
-										reference_stats[year] += 1
-									else:
-										reference_stats[year] = 1
-								pub_field['reference_stats'] = reference_stats
-								del pub_field['references']
-		elif verbosityLevel > 1:
-			for entry in entries:
-				for entry_pub in entry['entry_pubs']:
-					found_pubs = entry_pub.get('found_pubs')
-					if found_pubs is not None:
-						for pub_field in found_pubs:
-							citations = pub_field.get('citations')
-							if citations is not None:
-								self.populatePubIds(citations)
-							
-							references = pub_field.get('references')
-							if references is not None:
-								self.populatePubIds(references)
-							
-							if verbosityLevel >=2:
-								self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1)

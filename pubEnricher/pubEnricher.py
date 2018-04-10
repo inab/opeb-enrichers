@@ -75,16 +75,10 @@ if __name__ == "__main__":
 		if results_dir is not None:
 			os.makedirs(os.path.abspath(results_dir),exist_ok=True)
 		try:
-			entries = pub.reconcilePubIds(fetchedEntries,results_dir,verbosity_level)
+			pub.reconcilePubIds(fetchedEntries,results_dir=results_dir,results_file=output_file,verbosityLevel = verbosity_level)
 		except Exception as anyEx:
 			print("ERROR: Something went wrong",file=sys.stderr)
 			print(anyEx,file=sys.stderr)
 			import traceback
 			traceback.print_exc(file=sys.stderr)
 			raise anyEx
-		
-		#print(len(fetchedEntries))
-		#print(json.dumps(fetchedEntries,indent=4))
-		if output_file is not None:
-			with open(output_file,mode="w",encoding="utf-8") as o:
-				json.dump(entries,o,indent=4,sort_keys=True)
