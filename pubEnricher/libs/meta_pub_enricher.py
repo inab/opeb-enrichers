@@ -298,16 +298,16 @@ class MetaEnricher(SkeletonPubEnricher):
 		for merged_pub in linear_pubs:
 			base_pubs = merged_pub.get('base_pubs',[])
 			if base_pubs:
-				merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: 'references' in ref_pub, base_pubs)),verbosityLevel)
-				merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: 'citations' in cit_pub, base_pubs)),verbosityLevel)
+				merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: ref_pub.get('references') is not None , base_pubs)),verbosityLevel)
+				merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: cit_pub.get('citations') is not None , base_pubs)),verbosityLevel)
 				
 				# Cleanup
 				for base_pub in base_pubs:
 					for key in 'references','reference_count','citations','citation_count':
 						base_pub.pop(key,None)
 			else:
-				merged_references = []
-				merged_citations = []
+				merged_references = merged_pub.get('references',[])
+				merged_citations = merged_pub.get('citations',[])
 			
 			merged_pub['reference_count'] = len(merged_references)
 			merged_pub['citation_count'] = len(merged_citations)
