@@ -82,28 +82,13 @@ class PubmedEnricher(AbstractPubEnricher):
 				print(self.PUB_ID_SUMMARY_URL+'?'+summary_url_data,file=sys.stderr)
 			
 			# Queries with retries
-			retries = 0
-			while retries <= self.max_retries:
-				try:
-					with request.urlopen(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'),timeout=300) as entriesConn:
-						raw_pubmed_mappings = pub_common.full_http_read(entriesConn)
-						pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
-					
-					# Avoiding to hit the server too fast
-					time.sleep(self.request_delay)
-					
-					break
-				except HTTPError as e:
-					if e.code >= 500 and retries < self.max_retries:
-						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-						retries += 1
-						
-						if self._debug:
-							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						
-						time.sleep(2**retries)
-					else:
-						raise e
+			entriesReq = request.Request(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'))
+			raw_pubmed_mappings = self.retriable_full_http_read(entriesReq)
+			
+			pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
 			results = pubmed_mappings.get('result')
 			if results is not None:
@@ -203,28 +188,13 @@ class PubmedEnricher(AbstractPubEnricher):
 				print(self.PUB_ID_CONVERTER_URL + '?' + converter_url_data,file=sys.stderr)
 
 			# Queries with retries
-			retries = 0
-			while retries <= self.max_retries:
-				try:
-					with request.urlopen(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'),timeout=300) as entriesConn:
-						raw_id_mappings = pub_common.full_http_read(entriesConn)
-						id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
-						
-					# Avoiding to hit the server too fast
-					time.sleep(self.request_delay)
-					
-					break
-				except HTTPError as e:
-					if e.code >= 500 and retries < self.max_retries:
-						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-						retries += 1
-						
-						if self._debug:
-							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						
-						time.sleep(2**retries)
-					else:
-						raise e
+			converterReq = request.Request(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'))
+			raw_id_mappings = self.retriable_full_http_read(converterReq)
+			
+			id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
 			# We record the unpaired DOIs
 			eresult = id_mappings.get('esearchresult')
@@ -290,28 +260,13 @@ class PubmedEnricher(AbstractPubEnricher):
 				print(self.ELINKS_URL+'?'+elink_url_data,file=sys.stderr)
 			
 			# Queries with retries
-			retries = 0
-			while retries <= self.max_retries:
-				try:
-					with request.urlopen(self.ELINKS_URL,data=elink_url_data.encode('utf-8'),timeout=300) as elinksConn:
-						raw_json_citation_refs = pub_common.full_http_read(elinksConn)
-						raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
-						
-					# Avoiding to hit the server too fast
-					time.sleep(self.request_delay)
-					
-					break
-				except HTTPError as e:
-					if e.code >= 500 and retries < self.max_retries:
-						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-						retries += 1
-						
-						if self._debug:
-							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						
-						time.sleep(2**retries)
-					else:
-						raise e
+			elinksReq = request.Request(self.ELINKS_URL,data=elink_url_data.encode('utf-8'))
+			raw_json_citation_refs = self.retriable_full_http_read(elinksReq)
+			
+			raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
 			linksets = raw_json_citations.get('linksets')
 			if linksets is not None:
@@ -327,6 +282,8 @@ class PubmedEnricher(AbstractPubEnricher):
 								'id': _id,
 								'source': source_id
 							}
+							
+							citrefsG = []
 							for linksetdb in linksetdbs:
 								linkname = linksetdb['linkname']
 								
@@ -341,9 +298,12 @@ class PubmedEnricher(AbstractPubEnricher):
 										'source': source_id
 									},links))
 									
-									self.populatePubIds(citrefs,onlyYear=True)
-									
 									cite_res[citrefs_key] = citrefs
 									cite_res[citrefs_count_key] = len(citrefs)
+									# To the batch of queries
+									citrefsG.extend(citrefs)
+							
+							# Now, issue the batch query
+							self.populatePubIds(citrefsG,onlyYear=True)
 							
 							yield cite_res

@@ -68,38 +68,23 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			}
 			
 			searchURL = self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')
-			#if self._debug:
-			#	print(searchURL,file=sys.stderr)
+			if self._debug:
+				print(searchURL,file=sys.stderr)
 			#sys.exit(1)
 
 			# Queries with retries
-			retries = 0
-			while retries <= self.max_retries:
-				try:
-					with request.urlopen(searchURL) as entriesConn:
-						raw_json_pubs_mappings = pub_common.full_http_read(entriesConn)
-						
-						#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
-						#self._debug_count += 1
-						#with open(debug_cache_filename,mode="wb") as d:
-						#	d.write(raw_json_pubs_mappings)
-						
-						pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
-				
-					time.sleep(self.request_delay)
-					
-					break
-				except HTTPError as e:
-					if e.code >= 500 and retries < self.max_retries:
-						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-						retries += 1
-						
-						if self._debug:
-							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						
-						time.sleep(2**retries)
-					else:
-						raise e
+			searchReq = request.Request(searchURL)
+			raw_json_pubs_mappings = self.retriable_full_http_read(searchReq)
+			
+			#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
+			#self._debug_count += 1
+			#with open(debug_cache_filename,mode="wb") as d:
+			#	d.write(raw_json_pubs_mappings)
+			
+			pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
 			resultList = pubs_mappings.get('resultList')
 			if resultList is not None and 'result' in resultList:
@@ -155,34 +140,18 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				print(searchURL,file=sys.stderr)
 			
 			# Queries with retries
-			retries = 0
-			while retries <= self.max_retries:
-				try:
-					with request.urlopen(searchURL) as entriesConn:
-						raw_json_pubs_mappings = pub_common.full_http_read(entriesConn)
-						
-						#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
-						#self._debug_count += 1
-						#with open(debug_cache_filename,mode="wb") as d:
-						#	d.write(raw_json_pubs_mappings)
-						
-						pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
-				
-					# Avoiding to hit the server too fast
-					time.sleep(self.request_delay)
-					
-					break
-				except HTTPError as e:
-					if e.code >= 500 and retries < self.max_retries:
-						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-						retries += 1
-						
-						if self._debug:
-							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						
-						time.sleep(2**retries)
-					else:
-						raise e
+			searchReq = request.Request(searchURL)
+			raw_json_pubs_mappings = self.retriable_full_http_read(searchReq)
+			
+			#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
+			#self._debug_count += 1
+			#with open(debug_cache_filename,mode="wb") as d:
+			#	d.write(raw_json_pubs_mappings)
+			
+			pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
 			resultList = pubs_mappings.get('resultList')
 			if resultList is not None and 'result' in resultList:
@@ -241,44 +210,27 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				print(citref_url,file=sys.stderr)
 			
 			# Queries with retries
-			retries = 0
-			while retries <= self.max_retries:
-				try:
-					with request.urlopen(citref_url) as entriesConn:
-						raw_json_citrefs = pub_common.full_http_read(entriesConn)
-						
-						#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
-						#self._debug_count += 1
-						#with open(debug_cache_filename,mode="wb") as d:
-						#	d.write(raw_json_citrefs)
-						
-						citref_res = json.loads(raw_json_citrefs.decode('utf-8'))
-					
-					# Avoiding to hit the server too fast
-					time.sleep(self.request_delay)
-					
-					break
-				except HTTPError as e:
-					if e.code == 404:
-						citrefs = None
-						# We need to go out the outer loop
-						page = None
-						break
-					elif e.code >= 500 and retries < self.max_retries:
-						# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-						retries += 1
-						
-						if self._debug:
-							print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						
-						time.sleep(2**retries)
-					else:
-						raise e
-			
-			# Quitting from the outer loop
-			if page is None:
-				break
+			citrefReq = request.Request(citref_url)
+			try:
+				raw_json_citrefs = self.retriable_full_http_read(citrefReq)
 				
+				#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
+				#self._debug_count += 1
+				#with open(debug_cache_filename,mode="wb") as d:
+				#	d.write(raw_json_citrefs)
+				
+				citref_res = json.loads(raw_json_citrefs.decode('utf-8'))
+				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
+			except HTTPError as e:
+				if e.code == 404:
+					citrefs = None
+					# We need to go out the outer loop
+					break
+				else:
+					raise e
+			
 			if citref_count is None:
 				citref_count = citref_res.get('hitCount',0)
 				
