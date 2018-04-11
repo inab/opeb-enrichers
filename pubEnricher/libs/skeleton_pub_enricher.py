@@ -6,6 +6,9 @@ import json
 import configparser
 import copy
 
+from urllib import request
+from urllib.error import *
+
 from abc import ABC, abstractmethod
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
@@ -82,12 +85,55 @@ class SkeletonPubEnricher(ABC):
 					journalAbbreviation: Journal Abbriviations
 		"""
 		pass
+
+	# This method does the different reads and retries
+	# in case of partial contents
+	def retriable_full_http_read(self,theRequest:request.Request,timeout:int=300) -> bytes:
+		retries = 0
+		while retries <= self.max_retries:
+			try:
+				# The original bytes
+				response = b''
+				with request.urlopen(theRequest,timeout=timeout) as req:
+					while True:
+						try:
+							# Try getting it
+							responsePart = req.read()
+						except http.client.IncompleteRead as icread:
+							# Getting at least the partial content
+							response += icread.partial
+							continue
+						else:
+							# In this case, saving all
+							response += responsePart
+						break
+				
+				return response
+			except HTTPError as e:
+				if e.code >= 500 and retries < self.max_retries:
+					# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+					retries += 1
+					
+					if self._debug:
+						print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+					
+					time.sleep(2**retries)
+				else:
+					raise e
+			except socket.timeout as e:
+				# Using also a backoff time of 2 seconds when read timeouts occur
+				retries += 1
+				
+				if self._debug:
+					print("Retry {0} , due timeout".format(retries),file=sys.stderr)
+				
+				time.sleep(2**retries)
 	
 	def _citrefStats(self,citrefs:Iterator[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		# Computing the stats
 		citref_stats = {}
 		for citref in citrefs:
-			year = citref['year']
+			year = citref.get('year',-1)
 			if year in citref_stats:
 				citref_stats[year] += 1
 			else:
