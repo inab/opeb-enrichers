@@ -8,6 +8,7 @@ import copy
 
 from urllib import request
 from urllib.error import *
+import socket
 
 from abc import ABC, abstractmethod
 
