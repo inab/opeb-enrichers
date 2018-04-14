@@ -63,8 +63,11 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 			# as it is a kind of indicator
 			pubYear = partial_mapping.get('year')
 			_id = partial_mapping.get('id')
-			if _id is not None and (pubYear is None or not onlyYear):
-				mapping = self.pubC.getCachedMapping(partial_mapping['source'],_id)
+			# There can be corrupted or incomplete entries
+			# in the source
+			source_id = partial_mapping.get('source')
+			if _id is not None and source_id is not None and (pubYear is None or not onlyYear):
+				mapping = self.pubC.getCachedMapping(source_id,_id)
 				
 				if mapping is None:
 					populable_mappings.append(partial_mapping)

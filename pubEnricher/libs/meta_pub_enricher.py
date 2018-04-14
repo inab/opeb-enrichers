@@ -119,7 +119,7 @@ class MetaEnricher(SkeletonPubEnricher):
 					# We only need the reduced form for the next step
 					merged_pub['base_pubs'] = [ {'id': pub['id'],'source':pub['source'],'enricher':pub['enricher']}  for pub in found_pubs ]
 					merged_pub['source'] = self.META_SOURCE
-					merged_pub['id'] =  '-'.join(map(lambda pub: pub['enricher']+':'+pub['source']+':'+pub['id'] , filter(lambda pub: pub['id'] is not None , merged_pub['base_pubs'])))
+					merged_pub['id'] =  '-'.join(map(lambda pub: pub['enricher']+':'+pub['source']+':'+pub['id'] , filter(lambda pub: pub['id'] is not None and pub['source'] is not None, merged_pub['base_pubs'])))
 					del merged_pub['enricher']
 					
 					break
@@ -280,6 +280,10 @@ class MetaEnricher(SkeletonPubEnricher):
 			# This can happen when no result was found
 			if 'base_pubs' in pub:
 				for base_pub in pub['base_pubs']:
+					if (base_pub.get('id') is not None and base_pub.get('source') is None) or (base_pub.get('id') is None and base_pub.get('source') is not None):
+						print('FIXME',file=sys.stderr)
+						print(base_pub,file=sys.stderr)
+					
 					clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
 		
 		# After clustering, issue the batch calls to each enricher
