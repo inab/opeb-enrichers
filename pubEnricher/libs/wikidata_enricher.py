@@ -111,7 +111,7 @@ WHERE {{
 			mapping['year'] = pubyear
 			
 			authorsV = result.get('authors')
-			mapping['authors'] = authorsV['value'].split(';')  if authorsV else []
+			mapping['authors'] = authorsV['value'].split(';')  if authorsV and authorsV['value'] != '' else []
 			
 			pubmed_idV = result.get('pubmed_id')
 			mapping['pmid'] = pubmed_idV['value']  if pubmed_idV else None
@@ -252,7 +252,7 @@ WHERE {{
 			mapping['year'] = pubyear
 			
 			authorsV = result.get('authors')
-			mapping['authors'] = authorsV['value'].split(';')  if authorsV else []
+			mapping['authors'] = authorsV['value'].split(';')  if authorsV and authorsV['value'] != '' else []
 			
 			pubmed_idV = result.get('pubmed_id')
 			mapping['pmid'] = pubmed_idV['value']  if pubmed_idV else None
