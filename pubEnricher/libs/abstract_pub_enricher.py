@@ -109,8 +109,6 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 					mapping = self.pubC.getCachedMapping(source_id,_id)
 					pubmed_pairs.append(mapping)
 					
-					source_id = mapping['source']
-					
 					pubmed_id = mapping.get('pmid')
 					if pubmed_id is not None:
 						p2e.setdefault(pubmed_id,{})[source_id] = mapping
