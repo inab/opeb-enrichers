@@ -10,6 +10,8 @@ from urllib import request
 from urllib.error import *
 import socket
 
+import time
+
 from abc import ABC, abstractmethod
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
@@ -135,6 +137,8 @@ class SkeletonPubEnricher(ABC):
 		citref_stats = {}
 		for citref in citrefs:
 			year = citref.get('year',-1)
+			if year is None:
+				year = -1
 			if year in citref_stats:
 				citref_stats[year] += 1
 			else:
