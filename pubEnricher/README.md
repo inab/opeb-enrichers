@@ -6,7 +6,8 @@ This program is written for Python 3.5 and later. The installation procedure is 
 Once the program is installed, and its environment activated, you can see the different options using `-h` flag:
 
 ```
-usage: pubEnricher.py [-h] [-F] [-d] [-b {europepmc,pubmed,wikidata}]
+usage: pubEnricher.py [-h] [-F] [--fully-annotated] [-d]
+                      [-b {europepmc,pubmed,wikidata,meta}]
                       [-C CONFIG_FILENAME] [--save-opeb SAVE_OPEB_FILENAME]
                       [--use-opeb LOAD_OPEB_FILENAME]
                       (-D RESULTS_DIR | -f RESULTS_FILE)
@@ -19,8 +20,10 @@ optional arguments:
   -h, --help            show this help message and exit
   -F, --full            Return the full gathered citation results, not the
                         citation stats by year
+  --fully-annotated     Return the reference and citation results fully
+                        annotated, not only the year
   -d, --debug           Show the URL statements
-  -b {europepmc,pubmed,wikidata}, --backend {europepmc,pubmed,wikidata}
+  -b {europepmc,pubmed,wikidata,meta}, --backend {europepmc,pubmed,wikidata,meta}
                         Choose the enrichment backend
   -C CONFIG_FILENAME, --config CONFIG_FILENAME
                         Config file to pass setup parameters to the different
