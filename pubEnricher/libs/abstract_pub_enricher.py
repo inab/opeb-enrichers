@@ -69,6 +69,7 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 			if _id is not None and source_id is not None and (pubYear is None or not onlyYear):
 				mapping = self.pubC.getCachedMapping(source_id,_id)
 				
+				# Not found or expired mapping?
 				if mapping is None:
 					populable_mappings.append(partial_mapping)
 				else:
@@ -105,25 +106,29 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 		def _updateCaches(publish_id:str) -> bool:
 			internal_ids = self.pubC.getSourceIds(publish_id)
 			if internal_ids is not None:
+				validMappings = 0
 				for source_id,_id in internal_ids:
 					mapping = self.pubC.getCachedMapping(source_id,_id)
-					pubmed_pairs.append(mapping)
-					
-					pubmed_id = mapping.get('pmid')
-					if pubmed_id is not None:
-						p2e.setdefault(pubmed_id,{})[source_id] = mapping
-					
-					doi_id = mapping.get('doi')
-					if doi_id is not None:
-						doi_id_norm = pub_common.normalize_doi(doi_id)
-						d2e.setdefault(doi_id_norm,{})[source_id] = mapping
-					
-					pmc_id = mapping.get('pmcid')
-					if pmc_id is not None:
-						pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
-						pmc2e.setdefault(pmc_id_norm,{})[source_id] = mapping
+					# If the mapping did not expire, register it!
+					if mapping is not None:
+						validMappings += 1
+						pubmed_pairs.append(mapping)
+						
+						pubmed_id = mapping.get('pmid')
+						if pubmed_id is not None:
+							p2e.setdefault(pubmed_id,{})[source_id] = mapping
+						
+						doi_id = mapping.get('doi')
+						if doi_id is not None:
+							doi_id_norm = pub_common.normalize_doi(doi_id)
+							d2e.setdefault(doi_id_norm,{})[source_id] = mapping
+						
+						pmc_id = mapping.get('pmcid')
+						if pmc_id is not None:
+							pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+							pmc2e.setdefault(pmc_id_norm,{})[source_id] = mapping
 				
-				return True
+				return validMappings > 0
 			else:
 				return False
 		

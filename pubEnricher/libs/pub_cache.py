@@ -162,11 +162,22 @@ class PubCache(object):
 	
 	def getSourceIds(self,publish_id:PublishId) -> List[QualifiedId]:
 		timestamp_internal_ids , internal_ids = self.cache_ids.get(publish_id,(None,None))
+		
+		# Invalidate cache
+		if timestamp_internal_ids is not None and (Timestamps.UTCTimestamp() - timestamp_internal_ids) > self.OLDEST_CACHE:
+			internal_ids = None
+		
 		return internal_ids
 	
 	def appendSourceId(self,publish_id:PublishId,source_id:SourceId,_id:UnqualifiedId,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
-		_ , internal_ids = self.cache_ids.get(publish_id,(None,[]))
+		timestamp_internal_ids , internal_ids = self.cache_ids.get(publish_id,(None,[]))
+
+		# Invalidate cache
+		if timestamp_internal_ids is not None and (Timestamps.UTCTimestamp() - timestamp_internal_ids) > self.OLDEST_CACHE:
+			internal_ids = []
+		
 		internal_ids.append((source_id,_id))
+
 		self.cache_ids[publish_id] = (timestamp,internal_ids)
 	
 	def removeSourceId(self,publish_id:PublishId,source_id:SourceId,_id:UnqualifiedId,timestamp:datetime = Timestamps.UTCTimestamp()) -> None:
@@ -174,7 +185,11 @@ class PubCache(object):
 		
 		if orig_timestamp is not None:
 			try:
-				internal_ids.remove((source_id,_id))
+				# Invalidate cache
+				if (Timestamps.UTCTimestamp() - orig_timestamp) > self.OLDEST_CACHE:
+					internal_ids = []
+				else:
+					internal_ids.remove((source_id,_id))
 				self.cache_ids[publish_id] = (timestamp,internal_ids)
 			except:
 				pass
