@@ -113,7 +113,9 @@ class MetaEnricher(SkeletonPubEnricher):
 					for found_pub in found_pubs[i_found_pub+1:]:
 						if found_pub['id'] is not None:
 							for key,val in found_pub.items():
-								merged_pub.setdefault(key,val)
+								# This gives a chance to initialize an unknown field
+								if merged_pub.get(key) is None:
+									merged_pub[key] = val
 					
 					#merged_pub['base_pubs'] = base_pubs
 					# We only need the reduced form for the next step
