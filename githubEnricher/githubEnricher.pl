@@ -3,16 +3,26 @@
 use v5.10.1;
 use strict;
 use warnings 'all';
+
+use FindBin;
+use lib File::Spec->catfile($FindBin::Bin,'libs');
+
+use OpenEBenchQueries;
+
+use Carp;
+use Config::IniFiles;
+
+
 use HTTP::Request qw();
 use JSON::MaybeXS;
 use LWP::UserAgent qw();
 use URI;
 use Scalar::Util qw(blessed);
 use Getopt::Long;
+
 use File::Path qw();
 use File::Spec;
 
-use constant BIOTOOLS_ENDPOINT	=> URI->new('https://bio.tools/api/');
 use constant GITHUB_HOST => 'github.com';
 use constant GITHUB_ENDPOINT => 'https://'.GITHUB_HOST;
 use constant GITHUB_API_ENDPOINT => 'https://api.github.com/';
@@ -20,9 +30,6 @@ use constant GITHUB_API_ENDPOINT => 'https://api.github.com/';
 use constant GITHUB_IO_HOST => 'github.io';
 
 use constant GITHUB_API_V_HEADER => 'application/vnd.github.v3+json';
-
-use constant BIOTOOLS_PREFIX => 'bio.tools:';
-use constant BIOTOOLS_PREFIX_LENGTH => length(BIOTOOLS_PREFIX);
 # KeyOrder
 
 my @TabKeyOrder = (
@@ -62,54 +69,6 @@ my @TabKeyOrder = (
 	['tool_developers','credits']
 );
 
-my $GITHUB_PATTERN = ':\/\/'.GITHUB_HOST.'\/([^"\'\/]+)\/([^"\'\/]+)';
-
-my $GITHUB_COMPILED_PATTERN = qr/$GITHUB_PATTERN/;
-
-sub matchGitHub($;$) {
-	my($uriStr,$ua) = @_;
-	
-	my $isUri = undef;
-	my $owner = undef;
-	my $repo = undef;
-	
-	# Is an URI from GitHub?
-	eval {
-		my $ghURI = URI->new($uriStr);
-		if(defined($ghURI->scheme())) {
-			$isUri=1;
-			if(index($ghURI->scheme(), 'http') == 0 || index($ghURI->scheme(), 'git') == 0) {
-				if($ghURI->host() eq GITHUB_HOST) {
-					my @path = $ghURI->path_segments();
-					if(scalar(@path)>=3) {
-						($owner,$repo) = @path[1,2];
-						
-						# If it ends in \.git
-						$repo = substr($repo,0,-4)  if($repo =~ /.git$/);
-					}
-				} elsif(substr($ghURI->host(),-length(GITHUB_IO_HOST)) eq GITHUB_IO_HOST) {
-					# It is some kind of web
-					$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
-					
-					my $ghURIStr = $ghURI->as_string();
-					my $req = HTTP::Request->new('GET' => $ghURIStr);
-					my $response = $ua->request($req);
-					if($response->is_success()) {
-						my $page = $response->decoded_content();
-						while($page =~ /$GITHUB_COMPILED_PATTERN/g) {
-							$owner = $1;
-							$repo = $2;
-							last;
-						}
-					}
-				}
-			}
-		}
-	};
-	
-	return ($isUri,$owner,$repo);
-}
-
 sub fetchJSON($;$$$$) {
 	my($bUri,$ua,$user,$token,$p_acceptHeaders) = @_;
 	
@@ -121,7 +80,6 @@ sub fetchJSON($;$$$$) {
 		$headers->push_header(Accept => $p_acceptHeaders);
 	}
 
-print STDERR "JARL $bUriStr $user $token\n";
 	$req->authorization_basic($user,$token)  if(defined($user));
 	
 	sleep(1);
@@ -167,177 +125,20 @@ print STDERR "JARL $bUriStr $user $token\n";
 	}
 }
 
-my @btIds = ();
-
-my @filenames = ();
-my $tabfile = undef;
-my $jsondir = undef;
-my $gh_user = undef;
-my $gh_token = undef;
-Getopt::Long::GetOptions(
-	"gh-user=s"	=>	\$gh_user,
-	"gh-token=s"	=>	\$gh_token,
-	"tabular=s"	=>	\$tabfile,
-	"jsondir=s"	=>	\$jsondir,
-	"file=s"	=>	\@filenames,
-) or die("Error in command line arguments\n");
-
-if(scalar(@filenames) > 0 || scalar(@ARGV) > 0) {
-	if(scalar(@filenames) > 0) {
-		foreach my $file (@filenames) {
-			if(open(my $IF,'<:encoding(UTF-8)',$file)) {
-				print "* Reading identifiers file $file\n";
-				
-				while(my $line=<$IF>) {
-					next if(substr($line,0,1) eq '#');
-					chomp($line);
-					
-					my @tokens = split(/\t/,$line);
-					
-					foreach my $token (@tokens) {
-						$token =~ s/^\s+//;
-						$token =~ s/\s+$//;
-					}
-					
-					push(@btIds,[$tokens[0],(scalar(@tokens) >= 4) ? [ split(/;/,$tokens[4]) ]: undef]);
-				}
-				
-				close($IF);
-			} else {
-				print STDERR "ERROR: Unable to open identifiers file $file. Reason: $!\n";
-			}
-		}
-	}
+{
+	my %githubRepoDataCache = ();
 	
-	push(@btIds, map { [$_,undef] } @ARGV)  if(scalar(@ARGV)>0);
-}
-
-print STDERR "JARL $gh_user $gh_token\n";
-
-
-if(scalar(@btIds)>0) {
-	# Trimming spaces on the potential identifier, and splitting multiple ones
-	foreach my $p_biotoolsId (@btIds) {
-		unless(defined($p_biotoolsId->[1])) {
-			my $biotoolsId = $p_biotoolsId->[0];
-			
-			$biotoolsId =~ s/^\s+//;
-			$biotoolsId =~ s/\s+$//;
-			
-			# Splitting by ;
-			my @possibleIds = split(/;/,$biotoolsId);
-			$p_biotoolsId->[1] = \@possibleIds;
-		}
-	}
-	
-	my $jsonManifestFile = undef;
-	my %manifest = ();
-	if(defined($jsondir)) {
-		File::Path::make_path($jsondir);
-		$jsonManifestFile = File::Spec->catfile($jsondir,'manifest.json');
-		print "* JSON output directory set to $jsondir . Manifest file is $jsonManifestFile\n";
-	}
-	
-	my $TAB;
-	if(defined($tabfile)) {
-		print "* Tabular output file set to $tabfile\n";
-		open($TAB,'>:encoding(UTF-8)',$tabfile) or die("ERROR: Unable to create $tabfile: $!\n");
-	}
-	
-	unless(defined($jsondir) || defined($tabfile)) {
-		print "* Default to tabular output file set to STDOUT\n";
-		open($TAB,'>&:encoding(UTF-8)',\*STDOUT) or die("ERROR: Unable to redirect to STDOUT: $!\n");
-	}
-	
-	print "* Processing ".scalar(@btIds)." possible identifiers\n";
-	my $ua = LWP::UserAgent->new();
-	
-	my $printedHeader = undef;
-	my $numTool = 0;
-	foreach my $p_biotoolsId (@btIds) {
-		my($biotoolsId,$p_bIds) = @{$p_biotoolsId};
-		my @githubURIs = ();
+	sub getGitHubRepoData(\%$$;$) {
+		my($fullrepo,$gh_user,$gh_token,$ua) = @_;
 		
-		# Is an URI from GitHub?
-		my @otherU = ();
-		foreach my $bId (@{$p_bIds}){
-			my($isUri,$owner,$repo) = matchGitHub($bId,$ua);
-			
-			if($isUri) {
-				unless(defined($owner) && defined($repo)) {
-					print STDERR "Unrecognized GitHub URI $biotoolsId . Skipping\n";
-					$owner = undef;
-					$repo = 1;
-				}
-			}
-			
-			if(defined($owner)) {
-				push(@githubURIs, [$owner,$repo,$bId]);
-			} else {
-				push(@otherU, $bId);
-			}
-		}
+		my($owner,$repo) = @{$fullrepo}{('owner','repo')};
+		$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
 		
-		# Let's suppose it is a biotoolsId
-		if(scalar(@githubURIs)==0) {
-			foreach my $btId (@otherU){
-				my $bId = $btId;
-				if(substr($bId,0,BIOTOOLS_PREFIX_LENGTH) eq BIOTOOLS_PREFIX) {
-					$bId = substr($bId,BIOTOOLS_PREFIX_LENGTH);
-				}
-				
-				my $uBtId = URI->new($bId);
-				unless(defined($uBtId->scheme())) {
-					my $bUri = URI->new_abs($btId,BIOTOOLS_ENDPOINT);
-					$bUri->query_form('format'=>'json');
-					
-					my($netSuccess,$bData) = fetchJSON($bUri,$ua);
-					if($netSuccess) {
-						if(defined($bData)) {
-							if(exists($bData->{'link'}) && ref($bData->{'link'}) eq 'ARRAY') {
-								# Iterate over all the possible links
-								foreach my $link (@{$bData->{'link'}}) {
-									my($isUri,$owner,$repo) = matchGitHub($link->{'url'},$ua);
-									
-									if($isUri && defined($owner) && defined($repo)) {
-										push(@githubURIs, [$owner,$repo,$btId]);
-									}
-								}
-							}
-						} else {
-							print STDERR "ERROR: JSON parsing error\n";
-						}
-					} else {
-						print STDERR "ERROR: Unable to get record $biotoolsId from bio.tools. Does it exist?\n";
-					}
-				}
-			}
-		}
+		$githubRepoDataCache{$owner} = {}  unless(exists($githubRepoDataCache{$owner}));
 		
-		# Consolidation
-		my @uniqGH = ();
-		my %oCache = ();
-		foreach my $p_githubURI (@githubURIs) {
-			my($owner,$repo,$btId) = @{$p_githubURI};
-			if(exists($oCache{$owner}) && exists($oCache{$owner}{$repo})) {
-				push(@{$oCache{$owner}{$repo}},$btId)  unless($btId ~~ @{$oCache{$owner}{$repo}});
-			} else {
-				my $p_btIds = $oCache{$owner}{$repo} = [$btId];
-				
-				push(@uniqGH,[$owner,$repo,$p_btIds]);
-			}
-		}
-		
-		# Now, let's work with the GitHub API
-		my $p_mani = $manifest{$biotoolsId} = [];
-		foreach my $repoData (@uniqGH) {
-			my($owner,$repo,$p_btIds) = @{$repoData};
-			
-			# What we now, just now
-			my %ans = (
-				'tool_id'	=>	$biotoolsId,
-				'query_id'	=>	$p_btIds
-			);
+		unless(exists($githubRepoDataCache{$owner}{$repo})) {
+			my %ans = ();
+			$githubRepoDataCache{$owner}{$repo} = \%ans;
 			
 			# These are all the URIs the program needs to fetch from GitHub
 			
@@ -529,24 +330,86 @@ if(scalar(@btIds)>0) {
 			$ans{'tool_versions'} = \@versions  if(scalar(@versions) > 0);
 			# credits
 			$ans{'tool_developers'} = \@contributors  if(scalar(@contributors) > 0);
-			
-			# The assembled answer
-			if(defined($jsondir)) {
-				my $partialJsonout = 'tool-'.$numTool.'.json';
-				push(@{$p_mani},$partialJsonout);
-				my $jsonout = File::Spec->catfile($jsondir,$partialJsonout);
-				if(open(my $J,'>:encoding(UTF-8)',$jsonout)) {
-					print $J JSON->new()->pretty(1)->encode(\%ans);
-					
-					close($J);
-				} else {
-					print STDERR "* ERROR: Unable to create file $jsonout. Reason: $!\n";
-				}
-			}
-			# print JSON->new()->pretty(1)->encode(\%ans),"\n";
+		}
+		
+		return $githubRepoDataCache{$owner}{$repo};
+	}	
+}
+
+
+my @opebTools = ();
+
+my $save_opeb_filename = undef;
+my $load_opeb_filename = undef;
+my $config_filename = undef;
+
+my $tabfile = undef;
+my $jsondir = undef;
+Getopt::Long::GetOptions(
+	"save-opeb:s"	=>	\$save_opeb_filename,
+	"use-opeb:s"	=>	\$load_opeb_filename,
+	"config|C:s"	=>	\$config_filename,
+	"file|f:s"	=>	\$tabfile,
+	"directory|D:s"	=>	\$jsondir,
+) or die("Error in command line arguments\n");
+
+my $config;
+my $gh_user = undef;
+my $gh_token = undef;
+if(defined($config_filename)) {
+	$config = Config::IniFiles->new( -file => $config_filename );
+	if(defined($config)) {
+		$gh_user = $config->val('github','gh-user');
+		$gh_token = $config->val('github','gh-token');
+	} else {
+		foreach my $croak (@Config::IniFiles::errors) {
+			Carp::carp($croak);
+		}
+		exit 1;
+	}
+} else {
+	# Empty config
+	$config = Config::IniFiles->new();
+}
+
+my $opEb = OpenEBenchQueries->new($load_opeb_filename,$save_opeb_filename);
+my $p_queries = $opEb->extractGitHubIds();
+
+if(scalar(@{$p_queries})>0) {
+	my $jsonManifestFile = undef;
+	my %manifest = ();
+	if(defined($jsondir)) {
+		File::Path::make_path($jsondir);
+		$jsonManifestFile = File::Spec->catfile($jsondir,'manifest.json');
+		print "* JSON output directory set to $jsondir . Manifest file is $jsonManifestFile\n";
+	}
+	
+	my $TAB;
+	my $jTAB;
+	if(defined($tabfile)) {
+		print "* Tabular output file set to $tabfile\n";
+		open($TAB,'>:encoding(UTF-8)',$tabfile) or die("ERROR: Unable to create $tabfile: $!\n");
+		$jTAB = JSON->new();
+	}
+	
+	unless(defined($jsondir) || defined($tabfile)) {
+		print "* Default to tabular output file set to STDOUT\n";
+		open($TAB,'>&:encoding(UTF-8)',\*STDOUT) or die("ERROR: Unable to redirect to STDOUT: $!\n");
+	}
+	
+	print "* Processing ".scalar(@{$p_queries})." tools\n";
+	
+	my $printedHeader = undef;
+	my $numTool = 0;
+	my $ua = LWP::UserAgent->new();
+	foreach my $query (@{$p_queries}) {
+		# What we know, just now
+		my %fullans = %{$query};
+		
+		foreach my $fullrepo (@{$fullans{'repos'}}) {
+			my $p_ans = $fullrepo->{'res'} = getGitHubRepoData(%{$fullrepo},$gh_user,$gh_token,$ua);
 			
 			if(defined($TAB)) {
-				my $j = JSON->new();
 				unless($printedHeader) {
 					$printedHeader = 1;
 					print $TAB join("\t",map { $_->[1] } @TabKeyOrder),"\n";
@@ -556,27 +419,42 @@ if(scalar(@btIds)>0) {
 				print $TAB join("\t",map {
 					my $key = $_->[0];
 					my $retval = '';
-					if(exists($ans{$key}) && defined($ans{$key})) {
-						$retval = $ans{$key};
+					if(exists($p_ans->{$key}) && defined($p_ans->{$key})) {
+						$retval = $p_ans->{$key};
 						if(ref($retval) eq 'ARRAY') {
 							if(scalar(@{$retval}) > 0) {
 								if(ref($retval->[0])) {
-									$retval = join(',',map { $j->encode($_) } @{$retval});
+									$retval = join(',',map { $jTAB->encode($_) } @{$retval});
 								} else {
 									$retval = join(',',@{$retval});
 								}
 							}
 						} elsif(ref($retval)) {
-							$retval = $j->encode($retval);
+							$retval = $jTAB->encode($retval);
 						}
 					}
 					$retval;
 				} @TabKeyOrder),"\n";
 			}
-			
-			# Another more
-			$numTool++;
 		}
+		
+		# The assembled answer
+		if(defined($jsondir)) {
+			my $partialJsonout = 'tool-'.$numTool.'.json';
+			#push(@{$p_mani},$partialJsonout);
+			my $jsonout = File::Spec->catfile($jsondir,$partialJsonout);
+			if(open(my $J,'>:encoding(UTF-8)',$jsonout)) {
+				print $J JSON->new()->pretty(1)->encode(\%fullans);
+				
+				close($J);
+			} else {
+				Carp::croak("* ERROR: Unable to create file $jsonout. Reason: $!");
+			}
+		}
+		# print JSON->new()->pretty(1)->encode(\%ans),"\n";
+		
+		# Another more
+		$numTool++;
 	}
 	
 	# Closing the output file (if any)
@@ -588,10 +466,10 @@ if(scalar(@btIds)>0) {
 			print $M JSON->new()->pretty(1)->encode(\%manifest);
 			close($M);
 		} else {
-			print STDERR "ERROR: Unable to write manifest $jsonManifestFile. Reason: $!\n";
+			Carp::croak("ERROR: Unable to write manifest $jsonManifestFile. Reason: $!");
 		}
 	}
 } else {
-	print STDERR "Usage: $0 {bio.tools.id}+\n";
+	print STDERR "Usage: $0 [-C config file] [-D destination directory | -f destination file] [--save-opeb save_opeb_file.json] [--use-opeb use_opeb_file.json]\n";
 	exit 1;
 }
