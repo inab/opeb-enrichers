@@ -1,20 +1,14 @@
 [![DOI](https://zenodo.org/badge/120434235.svg)](https://zenodo.org/badge/latestdoi/120434235)
 
-# OpenEBench Requirements (currently, only the publications enricher)
+# OpenEBench Enrichers
 
-Python3 (tested with version 3.5)
+Currently there are two enrichers, which take the OpenEBench entries, and gather additional information based on each one of them.
 
-# How to use
-Clone repo :
-```
-git clone https://github.com/inab/opeb-enrichers.git
-```
+* [Publications enricher](pubEnricher): It takes the recorded publication ids (pmid, DOI and/or PMID), validate them, and it gathers additional information, like the journal, year, authors, references and citations.
 
-Move to publications enricher directory :
-```
-cd pubEnricher/
-```
+* [GitHub enricher](githubEnricher): It takes the recorded links pointing to GitHub resources, and it fetches additional information provided by [GitHub API](https://developer.github.com/v3/): tags, releases, commits, branches, authors, licences, etc...
 
-Follow the install instructions in [INSTALL.md](pubEnricher/INSTALL.md)
+## OpenEBench Enrichers requirements
 
-The brief usage instructions are in [README.md](pubEnricher/README.md)
+See [pubEnricher](pubEnricher/INSTALL.md) and [githubEnricher](githubEnricher/INSTALL.md) requirements.
+
