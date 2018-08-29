@@ -41,6 +41,8 @@ class WikidataEnricher(AbstractPubEnricher):
 		section_name = self.Name()
 		
 		self.wikidata_step_size = self.config.getint(section_name,'wikidata_step_size',fallback=self.step_size)
+		
+		self.wikidata_query_step_size = self.config.getint(section_name,'wikidata_query_step_size',fallback=self.wikidata_step_size)
 	
 	# Do not change this constant!!!
 	WIKIDATA_SOURCE='wikidata'
@@ -146,41 +148,77 @@ WHERE {{
 		# Preparing the query by the different ids
 		union_query = []
 		if raw_query_pubmed_ids:
-			union_query.append('{ ?internal_id wdt:P698 ?query_pubmed_id. }')
 			raw_query_pubmed = """
-	VALUES (?query_pubmed_id) {{
-		{0}
-	}}
+		SELECT DISTINCT ?internal_id
+		WHERE {{
+			VALUES (?query_pubmed_id) {{
+				{0}
+			}}
+			?internal_id wdt:P698 ?query_pubmed_id.
+		}}
 """.format("\n".join(map(lambda pubmed_id: '("'+pubmed_id.replace('"','\\"')+'")', raw_query_pubmed_ids)))
-		else:
-			raw_query_pubmed = ''
+			union_query.append(raw_query_pubmed)
 		
 		if raw_query_doi_ids:
-			union_query.append('{ ?internal_id wdt:P356 ?query_doi_id. }')
 			raw_query_doi = """
-	VALUES (?query_doi_id) {{
-		{0}
-	}}
+		SELECT DISTINCT ?internal_id
+		WHERE {{
+			VALUES (?query_doi_id) {{
+				{0}
+			}}
+			?internal_id wdt:P356 ?query_doi_id.
+		}}
 """.format("\n".join(map(lambda pubmed_id: '("'+pubmed_id.replace('"','\\"')+'")', raw_query_doi_ids)))
-		else:
-			raw_query_doi = ''
+			union_query.append(raw_query_doi)
 		
 		if raw_query_pmc_ids:
-			union_query.append('{ ?internal_id wdt:P932 ?query_pmc_id. }')
 			raw_query_pmc = """
-	VALUES (?query_pmc_id) {{
-		{0}
-	}}
+		SELECT DISTINCT ?internal_id
+		WHERE {{
+			VALUES (?query_pmc_id) {{
+				{0}
+			}}
+			?internal_id wdt:P932 ?query_pmc_id.
+		}}
 """.format("\n".join(map(lambda pmc_id: '("'+pmc_id.replace('"','\\"')+'")', raw_query_pmc_ids)))
+			union_query.append(raw_query_pmc)
+		
+		if len(union_query)>0:
+			# Now, with the unknown ones, let's ask the server
+			sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+			if len(union_query) == 1:
+				# No additional wrap is needed
+				queryQuery = union_query[0]
+			else:
+				# Prepared the union query
+				union_q = "\n\t} UNION {\n".join(union_query)
+				
+				queryQuery = """
+SELECT	DISTINCT ?internal_id
+WHERE {{
+	{{
+	{0}
+	}}
+}}
+""".format(union_q)
+			if(self._debug):
+				print(queryQuery,file=sys.stderr)
+			sparql.setQuery(queryQuery)
+			sparql.setReturnFormat(JSON)
+			results = sparql.query().convert()
+			
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
+			
+			mapping_ids = [ result['internal_id']['value']  for result in results["results"]["bindings"] ]
 		else:
-			raw_query_pmc = ''
+			mapping_ids = []
 		
-		# Prepared the union query
-		union_q = ' UNION '.join(union_query)
+		# The default return value
+		mappings = []
 		
-		# Now, with the unknown ones, let's ask the server
-		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
-		queryQuery = """
+		if len(mapping_ids) > 0:
+			populateQuery = """
 SELECT	?internal_id
 	?internal_idLabel
 	?pubmed_id
@@ -191,25 +229,12 @@ SELECT	?internal_id
 	?journal
 WHERE {{
 	# The query values will go here
-	#VALUES (?query_pubmed_id) {{
-	#	("23514411")
-	#}}
-	#VALUES (?query_doi_id) {{
-	#	("10.1093/NAR/GKM298")
-	#}}
-	#VALUES (?query_pmc_id) {{
-	#	("2712344")
-	#}}
-	{0}
-	{1}
-	{2}
+	VALUES (?internal_id) {{
+		#(<http://www.wikidata.org/entity/Q38485402>)
+{0}
+	}}
 	# Ignoring the class
-	#{{ ?internal_id wdt:P698 ?query_pubmed_id. }}
-	#UNION
-	#{{ ?internal_id wdt:P356 ?query_doi_id. }}
-	#UNION
-	#{{ ?internal_id wdt:P932 ?query_pmc_id. }}
-	{3}
+	?internal_id wdt:P31 ?internal_id_class .
 	OPTIONAL {{ ?internal_id wdt:P698 ?pubmed_id. }}
 	OPTIONAL {{ ?internal_id wdt:P356 ?doi_id. }}
 	OPTIONAL {{ ?internal_id wdt:P932 ?pmc_id. }}
@@ -223,47 +248,47 @@ WHERE {{
 		bd:serviceParam wikibase:language "en".
 	}}
 }} GROUP BY ?internal_id ?internal_idLabel ?pubmed_id ?doi_id ?pmc_id ?publication_date ?journal
-""".format(raw_query_pubmed,raw_query_doi,raw_query_pmc,union_q)
-		if(self._debug):
-			print(queryQuery,file=sys.stderr)
-		sparql.setQuery(queryQuery)
-		sparql.setReturnFormat(JSON)
-		results = sparql.query().convert()
-		
-		# Avoiding to hit the server too fast
-		time.sleep(self.request_delay)
-		
-		mappings = []
-		for result in results["results"]["bindings"]:
-			mapping = {
-				'id': result['internal_id']['value'],
-				'source': self.WIKIDATA_SOURCE
-			}
+""".format("\n".join(("\t( <"+mapping_id+"> )"  for mapping_id in mapping_ids)))
 			
-			titleV = result.get('internal_idLabel')
-			mapping['title'] = titleV['value']  if titleV else None
+			if(self._debug):
+				print(populateQuery,file=sys.stderr)
+			sparql.setQuery(populateQuery)
+			sparql.setReturnFormat(JSON)
+			results = sparql.query().convert()
 			
-			journalV = result.get('journal')
-			mapping['journal'] = journalV['value']  if journalV else None
+			# Avoiding to hit the server too fast
+			time.sleep(self.request_delay)
 			
-			pubdateV = result.get('publication_date')
-			pubyear = _extractYear(pubdateV['value']) if pubdateV else None
-			
-			mapping['year'] = pubyear
-			
-			authorsV = result.get('authors')
-			mapping['authors'] = authorsV['value'].split(';')  if authorsV and authorsV['value'] != '' else []
-			
-			pubmed_idV = result.get('pubmed_id')
-			mapping['pmid'] = pubmed_idV['value']  if pubmed_idV else None
-			
-			doi_idV = result.get('doi_id')
-			mapping['doi'] = doi_idV['value']  if doi_idV else None
-			
-			pmc_idV = result.get('pmc_id')
-			mapping['pmcid'] = pub_common.normalize_pmcid(pmc_idV['value'])  if pmc_idV else None
-			
-			mappings.append(mapping)
+			for result in results["results"]["bindings"]:
+				mapping = {
+					'id': result['internal_id']['value'],
+					'source': self.WIKIDATA_SOURCE
+				}
+				
+				titleV = result.get('internal_idLabel')
+				mapping['title'] = titleV['value']  if titleV else None
+				
+				journalV = result.get('journal')
+				mapping['journal'] = journalV['value']  if journalV else None
+				
+				pubdateV = result.get('publication_date')
+				pubyear = _extractYear(pubdateV['value']) if pubdateV else None
+				
+				mapping['year'] = pubyear
+				
+				authorsV = result.get('authors')
+				mapping['authors'] = authorsV['value'].split(';')  if authorsV and authorsV['value'] != '' else []
+				
+				pubmed_idV = result.get('pubmed_id')
+				mapping['pmid'] = pubmed_idV['value']  if pubmed_idV else None
+				
+				doi_idV = result.get('doi_id')
+				mapping['doi'] = doi_idV['value']  if doi_idV else None
+				
+				pmc_idV = result.get('pmc_id')
+				mapping['pmcid'] = pub_common.normalize_pmcid(pmc_idV['value'])  if pmc_idV else None
+				
+				mappings.append(mapping)
 		
 		return mappings
 	

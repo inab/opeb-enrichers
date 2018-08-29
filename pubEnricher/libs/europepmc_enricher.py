@@ -100,7 +100,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 						pmc_id = result.get('pmcid')
 						authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
 						
-						partial_mapping['title'] = result['title']
+						partial_mapping['title'] = result.get('title')
 						partial_mapping['journal'] = result.get('journalTitle')
 						partial_mapping['year'] = int(result['pubYear'])
 						partial_mapping['authors'] = authors
@@ -167,7 +167,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					if pubmed_id is not None or doi_id is not None or pmc_id is not None:
 						mapping = {
 							'id': _id,
-							'title': result['title'],
+							'title': result.get('title'),
 							'journal': result.get('journalTitle'),
 							'source': source_id,
 							'year': int(result['pubYear']),

@@ -13,7 +13,7 @@ case "$scriptdir" in
 		;;
 esac
 
-if [ $# > 1 ]; then
+if [ $# -gt 1 ]; then
 	config="$1"
 	shift
 	# Loading the credentials
