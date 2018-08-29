@@ -96,7 +96,7 @@ sub fetchJSON($;$$$$) {
 			print STDERR "ERROR: JSON parsing error: $@\n";
 		}
 	} else {
-		print STDERR "ERROR: kicked out $bURI : ".$response->status_line()."\n";
+		print STDERR "ERROR: kicked out $bUri : ".$response->status_line()."\n";
 	}
 	
 	return ($response->is_success(),$bData);
