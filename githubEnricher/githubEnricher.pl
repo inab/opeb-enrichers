@@ -88,7 +88,7 @@ sub fetchJSON($;$$$$) {
 	my $bData = undef;
 	if($response->is_success()) {
 		eval {
-			$bData = JSON->new()->decode($response->decoded_content);
+			$bData = JSON::MaybeXS->new()->decode($response->decoded_content);
 			#$bData = JSON->new()->utf8(1)->decode($response->decoded_content);
 		};
 		
@@ -96,7 +96,7 @@ sub fetchJSON($;$$$$) {
 			print STDERR "ERROR: JSON parsing error: $@\n";
 		}
 	} else {
-		print STDERR "ERROR: kicked out:".$response->status_line()."\n";
+		print STDERR "ERROR: kicked out $bURI : ".$response->status_line()."\n";
 	}
 	
 	return ($response->is_success(),$bData);
@@ -372,102 +372,109 @@ if(defined($config_filename)) {
 	$config = Config::IniFiles->new();
 }
 
-my $opEb = OpenEBenchQueries->new($load_opeb_filename,$save_opeb_filename);
-my $p_queries = $opEb->extractGitHubIds();
+if(defined($jsondir) || defined($tabfile)) {
+	my $opEb = OpenEBenchQueries->new($load_opeb_filename,$save_opeb_filename);
+	my $p_queries = $opEb->extractGitHubIds();
 
-if(scalar(@{$p_queries})>0) {
-	my $jsonManifestFile = undef;
-	my %manifest = ();
-	if(defined($jsondir)) {
-		File::Path::make_path($jsondir);
-		$jsonManifestFile = File::Spec->catfile($jsondir,'manifest.json');
-		print "* JSON output directory set to $jsondir . Manifest file is $jsonManifestFile\n";
-	}
-	
-	my $TAB;
-	my $jTAB;
-	if(defined($tabfile)) {
-		print "* Tabular output file set to $tabfile\n";
-		open($TAB,'>:encoding(UTF-8)',$tabfile) or die("ERROR: Unable to create $tabfile: $!\n");
-		$jTAB = JSON->new();
-	}
-	
-	unless(defined($jsondir) || defined($tabfile)) {
-		print "* Default to tabular output file set to STDOUT\n";
-		open($TAB,'>&:encoding(UTF-8)',\*STDOUT) or die("ERROR: Unable to redirect to STDOUT: $!\n");
-	}
-	
-	print "* Processing ".scalar(@{$p_queries})." tools\n";
-	
-	my $printedHeader = undef;
-	my $numTool = 0;
-	my $ua = LWP::UserAgent->new();
-	foreach my $query (@{$p_queries}) {
-		# What we know, just now
-		my %fullans = %{$query};
-		
-		foreach my $fullrepo (@{$fullans{'repos'}}) {
-			my $p_ans = $fullrepo->{'res'} = getGitHubRepoData(%{$fullrepo},$gh_user,$gh_token,$ua);
-			
-			if(defined($TAB)) {
-				unless($printedHeader) {
-					$printedHeader = 1;
-					print $TAB join("\t",map { $_->[1] } @TabKeyOrder),"\n";
-					print $TAB join("\t",map { $_->[0] } @TabKeyOrder),"\n";
-				}
-				
-				print $TAB join("\t",map {
-					my $key = $_->[0];
-					my $retval = '';
-					if(exists($p_ans->{$key}) && defined($p_ans->{$key})) {
-						$retval = $p_ans->{$key};
-						if(ref($retval) eq 'ARRAY') {
-							if(scalar(@{$retval}) > 0) {
-								if(ref($retval->[0])) {
-									$retval = join(',',map { $jTAB->encode($_) } @{$retval});
-								} else {
-									$retval = join(',',@{$retval});
-								}
-							}
-						} elsif(ref($retval)) {
-							$retval = $jTAB->encode($retval);
-						}
-					}
-					$retval;
-				} @TabKeyOrder),"\n";
-			}
-		}
-		
-		# The assembled answer
+	if(scalar(@{$p_queries})>0) {
+		my $jsonManifestFile = undef;
+		my @manifest = ();
 		if(defined($jsondir)) {
-			my $partialJsonout = 'tool-'.$numTool.'.json';
-			#push(@{$p_mani},$partialJsonout);
-			my $jsonout = File::Spec->catfile($jsondir,$partialJsonout);
-			if(open(my $J,'>:encoding(UTF-8)',$jsonout)) {
-				print $J JSON->new()->pretty(1)->encode(\%fullans);
+			File::Path::make_path($jsondir);
+			$jsonManifestFile = File::Spec->catfile($jsondir,'manifest.json');
+			print "* JSON output directory set to $jsondir . Manifest file is $jsonManifestFile\n";
+		}
+		
+		my $TAB;
+		my $jTAB;
+		if(defined($tabfile)) {
+			print "* Tabular output file set to $tabfile\n";
+			open($TAB,'>:encoding(UTF-8)',$tabfile) or die("ERROR: Unable to create $tabfile: $!\n");
+			$jTAB = JSON::MaybeXS->new();
+		}
+		
+		unless(defined($jsondir) || defined($tabfile)) {
+			print "* Default to tabular output file set to STDOUT\n";
+			open($TAB,'>&:encoding(UTF-8)',\*STDOUT) or die("ERROR: Unable to redirect to STDOUT: $!\n");
+		}
+		
+		print "* Processing ".scalar(@{$p_queries})." tools\n";
+		
+		my $printedHeader = undef;
+		my $numTool = 0;
+		my $ua = LWP::UserAgent->new();
+		foreach my $query (@{$p_queries}) {
+			# What we know, just now
+			my %fullans = %{$query};
+			
+			foreach my $fullrepo (@{$fullans{'repos'}}) {
+				my $p_ans = $fullrepo->{'res'} = getGitHubRepoData(%{$fullrepo},$gh_user,$gh_token,$ua);
 				
-				close($J);
+				if(defined($TAB)) {
+					unless($printedHeader) {
+						$printedHeader = 1;
+						print $TAB join("\t",map { $_->[1] } @TabKeyOrder),"\n";
+						print $TAB join("\t",map { $_->[0] } @TabKeyOrder),"\n";
+					}
+					
+					print $TAB join("\t",map {
+						my $key = $_->[0];
+						my $retval = '';
+						if(exists($p_ans->{$key}) && defined($p_ans->{$key})) {
+							$retval = $p_ans->{$key};
+							if(ref($retval) eq 'ARRAY') {
+								if(scalar(@{$retval}) > 0) {
+									if(ref($retval->[0])) {
+										$retval = join(',',map { $jTAB->encode($_) } @{$retval});
+									} else {
+										$retval = join(',',@{$retval});
+									}
+								}
+							} elsif(ref($retval)) {
+								$retval = $jTAB->encode($retval);
+							}
+						}
+						$retval;
+					} @TabKeyOrder),"\n";
+				}
+			}
+			
+			# The assembled answer
+			if(defined($jsondir)) {
+				my $partialJsonout = 'tool-'.$numTool.'.json';
+				push(@manifest,{
+					'@id'	=>	$fullans{'@id'},
+					'file'	=>	$partialJsonout
+				});
+				my $jsonout = File::Spec->catfile($jsondir,$partialJsonout);
+				if(open(my $J,'>:encoding(UTF-8)',$jsonout)) {
+					print $J JSON::MaybeXS->new(pretty => 1)->encode(\%fullans);
+					
+					close($J);
+				} else {
+					Carp::croak("* ERROR: Unable to create file $jsonout. Reason: $!");
+				}
+			}
+			# print JSON->new()->pretty(1)->encode(\%ans),"\n";
+			
+			# Another more
+			$numTool++;
+		}
+		
+		# Closing the output file (if any)
+		close($TAB)  if(defined($TAB));
+		
+		# Writing the manifest
+		if(defined($jsonManifestFile)) {
+			if(open(my $M,'>:encoding(UTF-8)',$jsonManifestFile)) {
+				print $M JSON::MaybeXS->new(pretty => 1)->encode(\@manifest);
+				close($M);
 			} else {
-				Carp::croak("* ERROR: Unable to create file $jsonout. Reason: $!");
+				Carp::croak("ERROR: Unable to write manifest $jsonManifestFile. Reason: $!");
 			}
 		}
-		# print JSON->new()->pretty(1)->encode(\%ans),"\n";
-		
-		# Another more
-		$numTool++;
-	}
-	
-	# Closing the output file (if any)
-	close($TAB)  if(defined($TAB));
-	
-	# Writing the manifest
-	if(defined($jsonManifestFile)) {
-		if(open(my $M,'>:encoding(UTF-8)',$jsonManifestFile)) {
-			print $M JSON->new()->pretty(1)->encode(\%manifest);
-			close($M);
-		} else {
-			Carp::croak("ERROR: Unable to write manifest $jsonManifestFile. Reason: $!");
-		}
+	} else {
+		print STDERR "No queries extracted from OpenEBench. Do you have internet access?\n";
 	}
 } else {
 	print STDERR "Usage: $0 [-C config file] [-D destination directory | -f destination file] [--save-opeb save_opeb_file.json] [--use-opeb use_opeb_file.json]\n";

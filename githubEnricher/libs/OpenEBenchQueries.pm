@@ -7,10 +7,11 @@ use Carp;
 use HTTP::Request qw();
 use JSON::MaybeXS;
 use LWP::UserAgent qw();
-use Scalar::Util qw(blessed);
 use URI;
 
 package OpenEBenchQueries;
+
+use Scalar::Util qw(blessed);
 
 use constant OPENEBENCH_SOURCE	=>	'https://openebench.bsc.es/monitor/rest/search';
 use constant GITHUB_HOST => 'github.com';
@@ -73,7 +74,7 @@ sub extractGitHubIds(;$$) {
 	}
 	
 	# Now, parse it 
-	my $retval = JSON->new()->decode($raw_opeb);
+	my $retval = JSON::MaybeXS->new()->decode($raw_opeb);
 
 	if($@) {
 		Carp::croak("ERROR: JSON parsing error: $@");
