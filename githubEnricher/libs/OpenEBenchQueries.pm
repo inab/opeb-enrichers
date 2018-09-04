@@ -130,6 +130,8 @@ my $GITHUB_PATTERN = ':\/\/'.GITHUB_HOST.'\/([^"\'\/]+)\/([^"\'\/]+)';
 
 my $GITHUB_COMPILED_PATTERN = qr/$GITHUB_PATTERN/;
 
+sub _matchGitHub($;$);
+
 sub _matchGitHub($;$) {
 	my($uriStr,$ua) = @_;
 	
@@ -157,8 +159,16 @@ sub _matchGitHub($;$) {
 				} elsif(substr($host,-length(GITHUB_IO_HOST)) eq GITHUB_IO_HOST) {
 					if(scalar(@path) >= 1) {
 						$owner = substr($host,0,index($host,'.'));
-						$repo = $path[0];
-					} else {
+						
+						if($owner eq 'htmlpreview') {
+							($isUri,$owner,$repo) = _matchGitHub($ghURI->query(),$ua);
+							return ($isUri,$owner,$repo);
+						} elsif(length($path[0]) > 0) {
+							$repo = $path[0];
+						}
+					}
+					
+					unless(defined($repo)) {
 						# It is some kind of web
 						$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
 						
@@ -201,7 +211,7 @@ sub parseOpenEBench(\@;$) {
 			foreach my $entry_link (@entry_links) {
 				my($isURI,$owner,$repo) = _matchGitHub($entry_link,$ua);
 				
-				if($isURI && defined($owner) && defined($repo)) {
+				if($isURI && defined($owner) && (length($owner) > 0) && defined($repo) && (length($repo) > 0)) {
 					$gitHubEntries{$owner} = {}  unless(exists($gitHubEntries{$owner}));
 					unless(exists($gitHubEntries{$owner}{$repo})) {
 						my $p_links = [];
