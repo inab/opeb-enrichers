@@ -212,10 +212,14 @@ sub parseOpenEBench(\@;$) {
 				my($isURI,$owner,$repo) = _matchGitHub($entry_link,$ua);
 				
 				if($isURI && defined($owner) && (length($owner) > 0) && defined($repo) && (length($repo) > 0)) {
-					$gitHubEntries{$owner} = {}  unless(exists($gitHubEntries{$owner}));
-					unless(exists($gitHubEntries{$owner}{$repo})) {
+					# Due GitHub behaves, it is case insensitive
+					my $lcOwner = lc($owner);
+					my $lcRepo = lc($repo);
+					
+					$gitHubEntries{$lcOwner} = {}  unless(exists($gitHubEntries{$lcOwner}));
+					unless(exists($gitHubEntries{$lcOwner}{$lcRepo})) {
 						my $p_links = [];
-						$gitHubEntries{$owner}{$repo} = $p_links;
+						$gitHubEntries{$lcOwner}{$lcRepo} = $p_links;
 						push(@repos,{
 							'owner'	=>	$owner,
 							'repo'	=>	$repo,
@@ -223,7 +227,7 @@ sub parseOpenEBench(\@;$) {
 						});
 					}
 					
-					push(@{$gitHubEntries{$owner}{$repo}},$entry_link);
+					push(@{$gitHubEntries{$lcOwner}{$lcRepo}},$entry_link);
 				}
 			}
 			
