@@ -24,6 +24,27 @@ use Getopt::Long;
 use File::Path qw();
 use File::Spec;
 
+use DateTime;
+use DateTime::Duration;
+use DateTime::Format::ISO8601;
+use DateTime::Format::Duration::ISO8601;
+
+# Next two methods are needed to properly serialize the dates and durations
+
+sub DateTime::Duration::TO_JSON {
+	my $self = shift;
+	
+	my $format = DateTime::Format::Duration::ISO8601->new();
+	
+	return $format->format_duration($self);
+}
+
+sub DateTime::TO_JSON {
+	my $self = shift;
+	
+	return $self->datetime().'Z';
+}
+
 use constant GITHUB_HOST => 'github.com';
 use constant GITHUB_ENDPOINT => 'https://'.GITHUB_HOST;
 use constant GITHUB_API_ENDPOINT => 'https://api.github.com/';
@@ -70,14 +91,16 @@ my @TabKeyOrder = (
 	['tool_developers','credits']
 );
 
-sub fetchJSON($;$$$$) {
-	my($bUri,$ua,$user,$token,$p_acceptHeaders) = @_;
+sub fetchJSON($;$$$$$) {
+	my($bUri,$ua,$user,$token,$p_acceptHeaders,$numIter) = @_;
 	
 	$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
+	$numIter = 0  unless(defined($numIter));
+	
 	my $uriStr = (blessed($bUri) && $bUri->can('as_string')) ? $bUri->as_string() : $bUri;
 	my $response;
 	my $bData = undef;
-	my $j = JSON::MaybeXS->new();
+	my $j = JSON::MaybeXS->new('convert_blessed' => 1);
 	
 	do {
 		my $bUriStr = $uriStr;
@@ -122,6 +145,7 @@ sub fetchJSON($;$$$$) {
 						if($newRel eq "rel='next'") {
 							$newLink =~ tr/\<\>//d;
 							$uriStr = $newLink;
+							$numIter --;
 							last;
 						}
 					}
@@ -130,7 +154,7 @@ sub fetchJSON($;$$$$) {
 		} else {
 			print STDERR "ERROR: kicked out $bUriStr : ".$response->status_line()."\n";
 		}
-	} while(defined($uriStr));
+	} while(defined($uriStr) && $numIter != 0);
 	
 	return ($response->is_success(),$bData);
 }
@@ -158,8 +182,39 @@ sub fetchJSON($;$$$$) {
 	}
 }
 
+my %recognizedBuildSystemsByLang = (
+	'Makefile'	=>	'make'
+);
+
+my %recognizedInterpretedLanguages = (
+	'python'	=> undef,
+	'perl'	=>	undef,
+	'ruby'	=>	undef,
+	'r'	=>	undef,
+	'php'	=>	undef,
+	'golang'	=>	undef,
+	'javascript'	=>	undef,
+	'shell'	=>	undef,
+	'jsoniq'	=>	undef
+);
+
+my %recognizedCompiledLanguages = (
+	'c'	=> undef,
+	'c++'	=> undef,
+	'java'	=> undef,
+	'fortran'	=> undef,
+	'perl 6'	=>	undef,
+	'pascal'	=>	undef,
+	'objective-c'	=>	undef,
+	'component pascal'	=>	undef,
+	'scala'	=>	undef,
+);
+
 {
+	# It is case insensitive
 	my %githubRepoDataCache = ();
+	
+	my $isoparser = DateTime::Format::ISO8601->new();
 	
 	sub getGitHubRepoData(\%$$;$) {
 		my($fullrepo,$gh_user,$gh_token,$ua) = @_;
@@ -167,9 +222,12 @@ sub fetchJSON($;$$$$) {
 		my($owner,$repo) = @{$fullrepo}{('owner','repo')};
 		$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
 		
-		$githubRepoDataCache{$owner} = {}  unless(exists($githubRepoDataCache{$owner}));
+		my $lcOwner = lc($owner);
+		my $lcRepo = lc($repo);
 		
-		unless(exists($githubRepoDataCache{$owner}{$repo})) {
+		$githubRepoDataCache{$lcOwner} = {}  unless(exists($githubRepoDataCache{$lcOwner}));
+		
+		unless(exists($githubRepoDataCache{$lcOwner}{$lcRepo})) {
 			my %ans = ();
 			
 			# These are all the URIs the program needs to fetch from GitHub
@@ -185,30 +243,37 @@ sub fetchJSON($;$$$$) {
 				print STDERR "\t- Extended processing $owner $repo\n";
 				# The real repo and/or owner could be different from the registered one
 				my $realOwner;
+				my $lcRealOwner;
 				my $realRepo;
+				my $lcRealRepo;
 				my $followProcessing = 1;
 				
 				if(exists($repoData->{'owner'}) && exists($repoData->{'owner'}{'login'})) {
 					$realOwner = $repoData->{'owner'}{'login'};
-					$githubRepoDataCache{$realOwner} = {}  unless(exists($githubRepoDataCache{$realOwner}));
+					$lcRealOwner = lc($realOwner);
 					
-					$realRepo = $repoData->{'name'}  if(exists($repoData->{'name'}));
+					$githubRepoDataCache{$lcRealOwner} = {}  unless(exists($githubRepoDataCache{$lcRealOwner}));
+					
+					if(exists($repoData->{'name'})) {
+						$realRepo = $repoData->{'name'};
+						$lcRealRepo = lc($realRepo);
+					}
 				}
 				
 				if(defined($realRepo)) {
-					if($realOwner ne $owner || $realRepo ne $repo) {
-						if(exists($githubRepoDataCache{$realOwner}{$realRepo})) {
+					if($lcRealOwner ne $lcOwner || $lcRealRepo ne $lcRepo) {
+						if(exists($githubRepoDataCache{$lcRealOwner}{$lcRealRepo})) {
 							# Nothing more to do, work previously done
-							$githubRepoDataCache{$owner}{$repo} = $githubRepoDataCache{$realOwner}{$realRepo};
+							$githubRepoDataCache{$lcOwner}{$lcRepo} = $githubRepoDataCache{$lcRealOwner}{$lcRealRepo};
 							
 							$followProcessing = undef;
 						} else {
 							# Two for one bargain!
-							$githubRepoDataCache{$realOwner}{$realRepo} =  \%ans;
-							$githubRepoDataCache{$owner}{$repo} = \%ans;
+							$githubRepoDataCache{$lcRealOwner}{$lcRealRepo} =  \%ans;
+							$githubRepoDataCache{$lcOwner}{$lcRepo} = \%ans;
 						}
 					} else {
-						$githubRepoDataCache{$realOwner}{$realRepo} =  \%ans;
+						$githubRepoDataCache{$lcRealOwner}{$lcRealRepo} =  \%ans;
 					}
 				} else {
 					# Nothing more to do here, min processing
@@ -284,9 +349,26 @@ sub fetchJSON($;$$$$) {
 							my $lastClosed = undef;
 							my $lastUpdated = undef;
 							my $lastCreated = undef;
+							
+							my $minDuration = undef;
+							my $maxDuration = undef;
+							my $totalDuration = DateTime::Duration->new('seconds' => 0);
+							
 							foreach my $issue (@{$issuesData}) {
 								if($issue->{'state'} eq 'closed') {
 									$numClosed++;
+									my $closedDt = $isoparser->parse_datetime($issue->{'closed_at'});
+									my $createdDt = $isoparser->parse_datetime($issue->{'created_at'});
+									my $duration = $closedDt - $createdDt;
+									my $absDuration = $closedDt->subtract_datetime_absolute($createdDt);
+									
+									$totalDuration = $totalDuration + $absDuration;
+									if(!defined($minDuration) || DateTime::Duration->compare($minDuration,$duration) > 0) {
+										$minDuration = $duration;
+									}
+									if(!defined($maxDuration) || DateTime::Duration->compare($duration,$maxDuration) > 0) {
+										$maxDuration = $duration;
+									}
 								} else {
 									$numOpen++;
 								}
@@ -304,6 +386,14 @@ sub fetchJSON($;$$$$) {
 								'lastUpdatedDate'	=>	$lastUpdated,
 								'lastCreatedDate'	=>	$lastCreated
 							);
+							if(defined($minDuration)) {
+								$issues{'minDuration'} = $minDuration;
+								$issues{'maxDuration'} = $maxDuration;
+								
+								my $totalSeconds = $totalDuration->in_units('seconds');
+								my $meanSeconds = int($totalSeconds/$numClosed + 0.5);
+								$issues{'meanDuration'} = DateTime::Duration->new('seconds' => $meanSeconds);
+							}
 							$ans{'issues'} = \%issues;
 						}
 					}
@@ -345,15 +435,26 @@ sub fetchJSON($;$$$$) {
 						}
 					}
 					
-					my %recognizedBuildSystemsByLang = (
-						'Makefile'	=>	'make'
-					);
-					
 					my $langsUri = URI->new(GITHUB_API_ENDPOINT);
 					$langsUri->path_segments("","repos",$realOwner,$realRepo,'languages');
 					my($langsSuccess,$langsData) = fetchJSON($langsUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
 					if($langsSuccess) {
 						$ans{'languages'} = [ keys(%{$langsData}) ];
+						
+						my $interpreted = JSON->false;
+						my $compiled = JSON->false;
+						foreach my $lang (keys(%{$langsData})) {
+							my $lcLang = lc($lang);
+							if(exists($recognizedInterpretedLanguages{$lcLang})) {
+								$interpreted = JSON->true;
+							}
+							if(exists($recognizedCompiledLanguages{$lcLang})) {
+								$compiled = JSON->true;
+							}
+						}
+						$ans{'has_interpretedLanguages'} = $interpreted;
+						$ans{'has_compiledLanguages'} = $compiled;
+						
 						# 'type'
 						foreach my $lang (keys(%recognizedBuildSystemsByLang)) {
 							if(exists($langsData->{$lang})) {
@@ -424,6 +525,23 @@ sub fetchJSON($;$$$$) {
 						}
 					}
 					
+					# Looking for a README and other elements
+					my $commitUri = URI->new(GITHUB_API_ENDPOINT);
+					$commitUri->path_segments("","repos",$realOwner,$realRepo,'commits');
+					my($commitSuccess,$commitData) = fetchJSON($commitUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER,1);
+					if($commitSuccess && scalar(@{$commitData}) > 0) {
+						my $treeUri = $commitData->[0]{'commit'}{'tree'}{'url'};
+						
+						my($treeSuccess,$treeData) = fetchJSON($treeUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
+						if($treeSuccess) {
+							foreach my $elem (@{$treeData->{'tree'}}) {
+								if(index(lc($elem->{'path'}),'readme') == 0) {
+									$ans{'readmeFile'} = $elem->{'path'};
+									last;
+								}
+							}
+						}
+					}
 					
 					#my $pullsUri = URI->new(GITHUB_API_ENDPOINT);
 					#$pullsUri->path_segments("","repos",$realOwner,$realRepo,'pulls');
@@ -434,13 +552,6 @@ sub fetchJSON($;$$$$) {
 					#}
 					#
 					#
-					#my $issueUri = URI->new(GITHUB_API_ENDPOINT);
-					#$issueUri->path_segments("","repos",$realOwner,$realRepo,'issues');
-					#my($issueSuccess,$issueData) = fetchJSON($issueUri,$ua,$gh_user,$gh_token,GITHUB_API_V_HEADER);
-					#if($issueSuccess) {
-					#	use Data::Dumper;
-					#	print Dumper($issueData),"\n";
-					#}
 					
 					# Versions
 					$ans{'tool_versions'} = \@versions  if(scalar(@versions) > 0);
@@ -451,7 +562,7 @@ sub fetchJSON($;$$$$) {
 			
 			# These are failed, strange cases
 			if($minProcessing) {
-				$githubRepoDataCache{$owner}{$repo} = \%ans;
+				$githubRepoDataCache{$lcOwner}{$lcRepo} = \%ans;
 				
 				# Alternate way
 				my $clone_uri = URI->new(GITHUB_ENDPOINT);
@@ -465,7 +576,7 @@ sub fetchJSON($;$$$$) {
 			}
 		}
 		
-		return $githubRepoDataCache{$owner}{$repo};
+		return $githubRepoDataCache{$lcOwner}{$lcRepo};
 	}	
 }
 
@@ -581,7 +692,7 @@ if(defined($jsondir) || defined($tabfile)) {
 				});
 				my $jsonout = File::Spec->catfile($jsondir,$partialJsonout);
 				if(open(my $J,'>:encoding(UTF-8)',$jsonout)) {
-					print $J JSON::MaybeXS->new(pretty => 1)->encode(\%fullans);
+					print $J JSON::MaybeXS->new(pretty => 1,convert_blessed => 1)->encode(\%fullans);
 					
 					close($J);
 				} else {
