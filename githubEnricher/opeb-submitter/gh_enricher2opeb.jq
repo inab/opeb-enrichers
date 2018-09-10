@@ -7,7 +7,7 @@ map(
 	$repos[0].res as $repo
 	|
 	{
-		"@id": $id | split("/") | ( .[4] |= "metrics" ) | join("/"),
+		"@id": $id | split("/") | ( .[4] |= "metrics" ) | ( .[2] |= $host ) | join("/"),
 		"project.readme": ( $repo | has("readmeFile") ),
 		"distribution.binaries.freeness": $repo.binary_isDistributable,
 		"distribution.binaries.registration": $repo.binary_isDownloadRegistered,
