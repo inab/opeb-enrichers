@@ -183,7 +183,8 @@ sub fetchJSON($;$$$$$) {
 }
 
 my %recognizedBuildSystemsByLang = (
-	'Makefile'	=>	'make'
+	'Makefile'	=>	'make',
+	'CMake'	=>	'cmake',
 );
 
 my %recognizedInterpretedLanguages = (
