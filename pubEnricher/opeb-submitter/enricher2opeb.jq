@@ -5,7 +5,7 @@ map(
 	}
 	|
 	{
-		"@id": $id | split("/") | ( .[4] |= "metrics" ) | join("/"),
+		"@id": $id | split("/") | ( .[4] |= "metrics" ) | ( .[2] |= $host ) | join("/"),
 		"project.publications": (
 			$entry_pubs | map(
 				{
