@@ -78,12 +78,11 @@ class PubmedEnricher(AbstractPubEnricher):
 				theQuery['api_key'] = self.api_key
 			
 			summary_url_data = parse.urlencode(theQuery)
-			if self._debug:
-				print(self.PUB_ID_SUMMARY_URL+'?'+summary_url_data,file=sys.stderr)
+			debug_summary_url = self.PUB_ID_SUMMARY_URL+'?'+summary_url_data  if self._debug else None
 			
 			# Queries with retries
 			entriesReq = request.Request(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'))
-			raw_pubmed_mappings = self.retriable_full_http_read(entriesReq)
+			raw_pubmed_mappings = self.retriable_full_http_read(entriesReq,debug_url=debug_summary_url)
 			
 			pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
 			
@@ -184,12 +183,11 @@ class PubmedEnricher(AbstractPubEnricher):
 				theIdQuery['api_key'] = self.api_key
 			
 			converter_url_data = parse.urlencode(theIdQuery)
-			if self._debug:
-				print(self.PUB_ID_CONVERTER_URL + '?' + converter_url_data,file=sys.stderr)
-
+			debug_converter_url = self.PUB_ID_CONVERTER_URL + '?' + converter_url_data  if self._debug else None
+			
 			# Queries with retries
 			converterReq = request.Request(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'))
-			raw_id_mappings = self.retriable_full_http_read(converterReq)
+			raw_id_mappings = self.retriable_full_http_read(converterReq,debug_url = debug_converter_url)
 			
 			id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
 			
@@ -256,12 +254,11 @@ class PubmedEnricher(AbstractPubEnricher):
 				theLinksQuery['api_key'] = self.api_key
 			
 			elink_url_data = parse.urlencode(theLinksQuery,doseq=True)
-			if self._debug:
-				print(self.ELINKS_URL+'?'+elink_url_data,file=sys.stderr)
+			debug_elink_url = self.ELINKS_URL+'?'+elink_url_data  if self._debug else None
 			
 			# Queries with retries
 			elinksReq = request.Request(self.ELINKS_URL,data=elink_url_data.encode('utf-8'))
-			raw_json_citation_refs = self.retriable_full_http_read(elinksReq)
+			raw_json_citation_refs = self.retriable_full_http_read(elinksReq,debug_url=debug_elink_url)
 			
 			raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
 			

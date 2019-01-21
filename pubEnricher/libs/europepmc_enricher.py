@@ -68,13 +68,11 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			}
 			
 			searchURL = self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')
-			if self._debug:
-				print(searchURL,file=sys.stderr)
 			#sys.exit(1)
 
 			# Queries with retries
 			searchReq = request.Request(searchURL)
-			raw_json_pubs_mappings = self.retriable_full_http_read(searchReq)
+			raw_json_pubs_mappings = self.retriable_full_http_read(searchReq,debug_url=searchURL)
 			
 			#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
 			#self._debug_count += 1
@@ -136,12 +134,10 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				'query': ' or '.join(raw_query_ids)
 			}
 			searchURL = self.OPENPMC_SEARCH_URL+'?'+parse.urlencode(theQuery,encoding='utf-8')
-			if self._debug:
-				print(searchURL,file=sys.stderr)
 			
 			# Queries with retries
 			searchReq = request.Request(searchURL)
-			raw_json_pubs_mappings = self.retriable_full_http_read(searchReq)
+			raw_json_pubs_mappings = self.retriable_full_http_read(searchReq,debug_url=searchURL)
 			
 			#debug_cache_filename = os.path.join(self.debug_cache_dir,str(self._debug_count) + '.json')
 			#self._debug_count += 1
@@ -206,13 +202,11 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		while page:
 			partialURL = '/'.join(map(lambda elem: parse.quote(str(elem),safe='') , [source_id,_id,query,page,pageSize,'json']))
 			citref_url = parse.urljoin(self.CITREF_ENDPOINT_URL,partialURL)
-			if self._debug:
-				print(citref_url,file=sys.stderr)
 			
 			# Queries with retries
 			citrefReq = request.Request(citref_url)
 			try:
-				raw_json_citrefs = self.retriable_full_http_read(citrefReq)
+				raw_json_citrefs = self.retriable_full_http_read(citrefReq,debug_url=citref_url)
 				
 				#debug_cache_filename = os.path.join(self.debug_cache_dir,'cite_' + str(self._debug_count) + '.json')
 				#self._debug_count += 1

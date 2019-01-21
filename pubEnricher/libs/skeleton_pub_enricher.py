@@ -91,7 +91,10 @@ class SkeletonPubEnricher(ABC):
 
 	# This method does the different reads and retries
 	# in case of partial contents
-	def retriable_full_http_read(self,theRequest:request.Request,timeout:int=300) -> bytes:
+	def retriable_full_http_read(self,theRequest:request.Request,timeout:int=300,debug_url=None) -> bytes:
+		if self._debug and (debug_url is not None):
+			print(debug_url,file=sys.stderr)
+			sys.stderr.flush()
 		retries = 0
 		while retries <= self.max_retries:
 			try:
@@ -122,6 +125,9 @@ class SkeletonPubEnricher(ABC):
 					
 					time.sleep(2**retries)
 				else:
+					if debug_url is not None:
+						print("URL with ERROR: "+debug_url+"\n",file=sys.stderr)
+						sys.stderr.flush()
 					raise e
 			except socket.timeout as e:
 				# Using also a backoff time of 2 seconds when read timeouts occur
