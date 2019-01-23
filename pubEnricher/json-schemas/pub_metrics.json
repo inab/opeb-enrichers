@@ -1,6 +1,6 @@
 {
 	"id": "https://openebench.bsc.es/monitor/metrics/pub_metrics.json",
-	"$schema": "http://json-schema.org/draft-04/hyper-schema#",
+	"$schema": "http://json-schema.org/draft-07/schema#",
 	"title": "OpenEBench Publication Metrics Enricher Schema",
 	"definitions": {
 		"initial_ref": {
@@ -111,7 +111,7 @@
 				}
 			]
 		},
-		"publication": {
+		"Publication": {
 			"title": "A found publication entry",
 			"allOf": [
 				{
@@ -169,14 +169,14 @@
 											"title": "The works (manuscripts, theses, etc..) referencing this publication",
 											"type": "array",
 											"items": {
-												"$ref": "#/definitions/publication"
+												"$ref": "#/definitions/Publication"
 											}
 										},
 										"references": {
 											"title": "The works (manuscripts, theses, etc..) referenced by this publication",
 											"type": "array",
 											"items": {
-												"$ref": "#/definitions/publication"
+												"$ref": "#/definitions/Publication"
 											}
 										}
 									},
@@ -215,42 +215,56 @@
 			],
 			"required": ["source","id"]
 		},
-		"found_publication": {
+		"FoundAttrs": {
+			"type": "object",
+			"properties": {
+				"broken_curie_ids": {
+					"title": "The broken ids (i.e. with no result), in CURIE format",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"curie_ids": {
+					"title": "The known ids of this publication, in CURIE format",
+					"type": "array",
+					"items": {
+						"type": "string",
+						"format": "uri"
+					}
+				},
+				"reason": {
+					"title": "The reason behind the lack of information",
+					"type": "string",
+					"enum": [ "noReference", "notFound","mismatch" ]
+				}
+			},
+			"required": ["broken_curie_ids","curie_ids"]
+		},
+		"FoundPublication": {
 			"title": "A found publication entry",
 			"allOf": [
 				{
-					"$ref": "#/definitions/publication"
+					"$ref": "#/definitions/Publication"
 				},
 				{
-					"type": "object",
-					"properties": {
-						"broken_curie_ids": {
-							"title": "The broken ids (i.e. with no result), in CURIE format",
-							"type": "array",
-							"items": {
-								"type": "string"
-							}
-						},
-						"curie_ids": {
-							"title": "The known ids of this publication, in CURIE format",
-							"type": "array",
-							"items": {
-								"type": "string",
-								"format": "uri"
-							}
-						},
-						"reason": {
-							"title": "The reason behind the lack of information",
-							"type": "string",
-							"enum": [ "noReference", "notFound","mismatch" ]
-						}
-					},
-					"required": ["broken_curie_ids","curie_ids"]
+					"$ref": "#/definitions/FoundAttrs"
 				}
 			]
 		},
-		"entry_pub": {
-			"title": "A publication entry which was searched",
+		"FoundPublicationRef": {
+			"title": "A found publication entry ref",
+			"allOf": [
+				{
+					"$ref": "#/definitions/citref_minimal"
+				},
+				{
+					"$ref": "#/definitions/FoundAttrs"
+				}
+			]
+		},
+		"ToolPublication": {
+			"title": "A publication entry, related to a tool, which was searched",
 			"allOf": [
 				{
 					"$ref": "#/definitions/initial_ref"
@@ -261,9 +275,16 @@
 						"found_pubs": {
 							"title": "The list of found publications with these ids",
 							"type": "array",
-							"items": {
-								"$ref": "#/definitions/found_publication"
-							}
+							"oneOf": [
+								{
+									"items": {
+										"$ref": "#/definitions/FoundPublication"
+									},
+									"items": {
+										"$ref": "#/definitions/FoundPublicationRef"
+									}
+								}
+							]
 						}
 					}
 				}
@@ -272,21 +293,46 @@
 				"pmcid": [ "found_pubs" ],
 				"pmid": [ "found_pubs" ],
 				"doi": [ "found_pubs" ]
-			}
+			},
+			"additionalProperties": false
+		},
+		"Tool": {
+			"type": "object",
+			"properties": {
+				"@id": {
+					"type": "string",
+					"format": "uri"
+				},
+				"entry_pubs": {
+					"type": "array",
+					"minLength": 1,
+					"items": {
+						"$ref": "#/definitions/ToolPublication"
+					}
+				}
+			},
+			"additionalProperties": true,
+			"required": [ "@id" ]
 		}
 	},
-	"type": "object",
-	"properties": {
-		"@id": {
-			"type": "string",
-			"format": "uri"
-		},
-		"entry_pubs": {
+	"oneOf": [
+		{
 			"type": "array",
-			"minLength": 1,
 			"items": {
-				"$ref": "#/definitions/entry_pub"
+				"$ref": "#/definitions/Tool"
 			}
+		},
+		{
+			"$ref": "#/definitions/Tool"
+		},
+		{
+			"$ref": "#/definitions/ToolPublication"
+		},
+		{
+			"$ref": "#/definitions/FoundPublication"
+		},
+		{
+			"$ref": "#/definitions/Publication"
 		}
-	}
+	]
 }
