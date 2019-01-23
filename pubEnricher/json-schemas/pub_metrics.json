@@ -184,6 +184,25 @@
 								},
 								{
 									"properties": {
+										"citation_refs": {
+											"title": "The works (manuscripts, theses, etc..) referencing this publication",
+											"type": "array",
+											"items": {
+												"$ref": "#/definitions/citref_minimal"
+											}
+										},
+										"reference_refs": {
+											"title": "The works (manuscripts, theses, etc..) referenced by this publication",
+											"type": "array",
+											"items": {
+												"$ref": "#/definitions/citref_minimal"
+											}
+										}
+									},
+									"required": ["citation_refs","reference_refs"]
+								},
+								{
+									"properties": {
 										"citation_stats": {
 											"title": "The number of works referencing this publication, counted by year",
 											"type": "array",
