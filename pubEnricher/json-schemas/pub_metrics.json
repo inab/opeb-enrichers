@@ -1,0 +1,292 @@
+{
+	"id": "https://openebench.bsc.es/monitor/metrics/pub_metrics.json",
+	"$schema": "http://json-schema.org/draft-04/hyper-schema#",
+	"title": "OpenEBench Publication Metrics Enricher Schema",
+	"definitions": {
+		"initial_ref": {
+			"type": "object",
+			"properties": {
+				"pmcid": {
+					"title": "A PubmedCentral Id. In a perfect world, we could enforce this as a pattern",
+					"type": ["string","null"]
+				},
+				"pmid": {
+					"title": "A PubMed Id. In a perfect world, we could enforce this as a number",
+					"type": ["string","null"]
+				},
+				"doi": {
+					"title": "A DOI. In a perfect world, we could enforce this as an URI",
+					"type": ["string","null"]
+				}
+			}
+		},
+		"citref_count": {
+			"type": "integer",
+			"minimum": 0
+		},
+		"year": {
+			"title": "The publication year",
+			"type": ["integer", "null"],
+			"minimum": 1500
+		},
+		"citref_stat": {
+			"title": "Number of citations or reference in a given year",
+			"type": "object",
+			"properties": {
+				"count": {
+					"$ref": "#/definitions/citref_count"
+				},
+				"year": {
+					"$ref": "#/definitions/year"
+				}
+			},
+			"required": ["count","year"]
+		},
+		"citref_minimal": {
+			"type": "object",
+			"properties": {
+				"source": {
+					"title": "The symbolic name of the source of this publication entry",
+					"documentation": "The sources from http://europepmc.org/Help#whatserachingEPMC , plus the ones managed by the enricher",
+					"oneOf": [
+						{
+							"type": "string",
+							"enum": [
+								"AGR",
+								"CBA",
+								"CTX",
+								"ETH",
+								"HIR",
+								"MED",
+								"NBK",
+								"PAT",
+								"PMC",
+								"pubmed",
+								"wikidata",
+								"meta"
+							]
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"id": {
+					"title": "The unique id within the source which identifies the entry",
+					"type": ["string","null"]
+				}
+			},
+			"required": ["source","id"]
+		},
+		"citref_year": {
+			"allOf": [
+				{
+					"$ref": "#/definitions/citref_minimal"
+				},
+				{
+					"type": "object",
+					"properties": {
+						"year": {
+							"$ref": "#/definitions/year"
+						}
+					},
+					"required": ["year"]
+				}
+			]
+		},
+		"citref_basepub": {
+			"allOf": [
+				{
+					"$ref": "#/definitions/citref_minimal"
+				},
+				{
+					"type": "object",
+					"properties": {
+						"enricher": {
+							"title": "The source (i.e. enricher) used to get this data",
+							"type": "string"
+						}
+					},
+					"required": ["enricher"]
+				}
+			]
+		},
+		"publication": {
+			"title": "A found publication entry",
+			"allOf": [
+				{
+					"$ref": "#/definitions/initial_ref"
+				},
+				{
+					"$ref": "#/definitions/citref_year"
+				},
+				{
+					"type": "object",
+					"properties": {
+						"journal": {
+							"title": "The journal where this publication appeared",
+							"type": "string"
+						},
+						"title": {
+							"title": "The publication title",
+							"type": "string"
+						},
+						"authors": {
+							"title": "The list of authors of this publication",
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"base_pubs": {
+							"title": "For meta-generated entries, the list of base pubs",
+							"type": "array",
+							"items": {
+								"$ref": "#/definitions/citref_basepub"
+							}
+						}
+					},
+					"required": ["journal","title","authors"]
+				},
+				{
+					"anyOf": [
+						{
+							"type": "object",
+							"properties": {
+								"citation_count": {
+									"title": "The number of citations",
+									"$ref": "#/definitions/citref_count"
+								},
+								"reference_count": {
+									"title": "The number of references",
+									"$ref": "#/definitions/citref_count"
+								}
+							},
+							"oneOf": [
+								{
+									"properties": {
+										"citations": {
+											"title": "The works (manuscripts, theses, etc..) referencing this publication",
+											"type": "array",
+											"items": {
+												"$ref": "#/definitions/publication"
+											}
+										},
+										"references": {
+											"title": "The works (manuscripts, theses, etc..) referenced by this publication",
+											"type": "array",
+											"items": {
+												"$ref": "#/definitions/publication"
+											}
+										}
+									},
+									"required": ["citations","references"]
+								},
+								{
+									"properties": {
+										"citation_stats": {
+											"title": "The number of works referencing this publication, counted by year",
+											"type": "array",
+											"items": {
+												"$ref": "#/definitions/citref_stat"
+											}
+										},
+										"reference_stats": {
+											"title": "The number of works referenced by this publication, counted by year",
+											"type": "array",
+											"items": {
+												"$ref": "#/definitions/citref_stat"
+											}
+										}
+									},
+									"required": ["citation_stats","reference_stats"]
+								}
+							],
+							"required": ["citation_count","reference_count"]
+						},
+						{
+							"type": "object",
+							"properties": {
+							},
+							"additionaProperties": false
+						}
+					]
+				}
+			],
+			"required": ["source","id"]
+		},
+		"found_publication": {
+			"title": "A found publication entry",
+			"allOf": [
+				{
+					"$ref": "#/definitions/publication"
+				},
+				{
+					"type": "object",
+					"properties": {
+						"broken_curie_ids": {
+							"title": "The broken ids (i.e. with no result), in CURIE format",
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"curie_ids": {
+							"title": "The known ids of this publication, in CURIE format",
+							"type": "array",
+							"items": {
+								"type": "string",
+								"format": "uri"
+							}
+						},
+						"reason": {
+							"title": "The reason behind the lack of information",
+							"type": "string",
+							"enum": [ "noReference", "notFound","mismatch" ]
+						}
+					},
+					"required": ["broken_curie_ids","curie_ids"]
+				}
+			]
+		},
+		"entry_pub": {
+			"title": "A publication entry which was searched",
+			"allOf": [
+				{
+					"$ref": "#/definitions/initial_ref"
+				},
+				{
+					"type": "object",
+					"properties": {
+						"found_pubs": {
+							"title": "The list of found publications with these ids",
+							"type": "array",
+							"items": {
+								"$ref": "#/definitions/found_publication"
+							}
+						}
+					}
+				}
+			],
+			"dependencies": {
+				"pmcid": [ "found_pubs" ],
+				"pmid": [ "found_pubs" ],
+				"doi": [ "found_pubs" ]
+			}
+		}
+	},
+	"type": "object",
+	"properties": {
+		"@id": {
+			"type": "string",
+			"format": "uri"
+		},
+		"entry_pubs": {
+			"type": "array",
+			"minLength": 1,
+			"items": {
+				"$ref": "#/definitions/entry_pub"
+			}
+		}
+	}
+}
