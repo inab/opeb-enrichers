@@ -152,6 +152,24 @@ class SkeletonPubEnricher(ABC):
 		
 		return [ {'year':year,'count':citref_stats[year]} for year in sorted(citref_stats.keys()) ]
 	
+	def flattenPubs(self,opeb_entries:List[Dict[str,Any]]) -> None:
+		"""
+			This method takes in batches of entries and retrives citations from ids
+			hitCount: number of times cited
+				for each citation it retives
+					id: id of the paper it was cited in
+					source: from where it was retrived i.e MED = publications from PubMed and MEDLINE
+					pubYear: year of publication
+					journalAbbreviation: Journal Abbriviations
+		"""
+		
+		linear_pubs = []
+		for entry_pubs in map(lambda opeb_entry: opeb_entry['entry_pubs'],opeb_entries):
+			for entry_pub in entry_pubs:
+				linear_pubs.extend(entry_pub['found_pubs'])
+		
+		return linear_pubs
+	
 	def reconcileCitRefMetricsBatch(self,opeb_entries:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
 		"""
 			This method takes in batches of entries and retrives citations from ids
@@ -170,7 +188,7 @@ class SkeletonPubEnricher(ABC):
 		
 		self.listReconcileCitRefMetricsBatch(linear_pubs,verbosityLevel)
 	
-	def reconcilePubIds(self,entries:List[Dict[str,Any]],results_dir:str=None,results_file:str=None,verbosityLevel:float=0) -> List[Any]:
+	def reconcilePubIds(self,entries:List[Dict[str,Any]],results_path:str=None,results_format:str=None,verbosityLevel:float=0) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
 			and the DOIs it has. As it manipulates the entries, adding
@@ -178,38 +196,135 @@ class SkeletonPubEnricher(ABC):
 			parameter as input
 		"""
 		
-		#print(len(fetchedEntries))
-		#print(json.dumps(fetchedEntries,indent=4))
-		if results_file is not None:
-			jsonOutput = open(results_file,mode="w",encoding="utf-8")
-			print('[',file=jsonOutput)
-			printComma = False
-		else:
-			jsonOutput = None
-		
-		for start in range(0,len(entries),self.step_size):
-			stop = start+self.step_size
+		# As flat format is so different from the previous ones, use a separate codepath
+		if results_format is "flat":
+			# First, let's save the tool entries to the directory
+			for i_tool,tool in enumerate(entries):
+				tool_file = os.path.join(results_path,'tool_'+str(i_tool)+'.json')
+				with open(tool_file,mode="w",encoding="utf-8") as toolentry:
+					json.dump(tool,toolentry,indent=4,sort_keys=True)
+			
 			# This unlinks the input from the output
-			entries_slice = copy.deepcopy(entries[start:stop])
-			self.reconcilePubIdsBatch(entries_slice)
-			self.reconcileCitRefMetricsBatch(entries_slice,verbosityLevel)
-			self.pubC.sync()
-			if jsonOutput is not None:
-				for entry in entries_slice:
-					if printComma:
-						print(',',file=jsonOutput)
-					else:
-						printComma=True
-					json.dump(entry,jsonOutput,indent=4,sort_keys=True)
-			if results_dir is not None:
-				filename_prefix = 'entry_' if verbosityLevel == 0  else 'fullentry_'
+			copied_entries = copy.deepcopy(entries)
+			# Now, gather the tool publication entries
+			for start in range(0,len(copied_entries),self.step_size):
+				stop = start+self.step_size
+				entries_slice = copied_entries[start:stop]
+				self.reconcilePubIdsBatch(entries_slice)
+				
+				filename_prefix = 'pub_tool_'
 				for idx, entry in enumerate(entries_slice):
-					dest_file = os.path.join(results_dir,filename_prefix+str(start+idx)+'.json')
+					dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
 					with open(dest_file,mode="w",encoding="utf-8") as outentry:
 						json.dump(entry,outentry,indent=4,sort_keys=True)
-		
-		if jsonOutput is not None:
-			print(']',file=jsonOutput)
-			jsonOutput.close()
+			
+			# Recording what we have already fetched (and saved)
+			saved_pubs = {}
+			saved_comb = {}
+			
+			# The counter for the files being generated
+			pub_counter = 0
+			query_refs = []
+			query_pubs = self.flattenPubs(copied_entries)
+			while (len(query_pubs) + len(query_refs)) > 0 and verbosity_level >=0:
+				# The list of new citations to populate later
+				new_pubs = list(filter(lambda pub: (pub.get('source','') + ':' + pub.get('id','')) not in saved_pubs,query_pubs))
+				unique_pubs = {}
+				unique_comb_pubs = {}
+				for new_pub in new_pubs:
+					new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
+					if new_key not in unique_pubs:
+						unique_pubs[new_key] = new_pub
+						unique_comb_pubs[new_key] = new_pub
+				
+				new_ref_pubs = list(filter(lambda pub: (pub.get('source','') + ':' + pub.get('id','')) not in saved_comb,query_refs))
+				for new_ref_pub in new_ref_pubs:
+					new_comb_key = new_ref_pub.get('source','') + ':' + new_ref_pub.get('id','')
+					if new_comb_key not in unique_comb_pubs:
+						unique_comb_pubs[new_comb_key] = new_ref_pub
+				
+				if len(unique_comb_pubs) == 0:
+					break
+				
+				# Obtaining the publication data
+				unique_to_populate = list(unique_comb_pubs.values())
+				self.populatePubIds(unique_to_populate)
+				
+				# The list of new citations to dig in later
+				unique_to_reconcile = list(unique_pubs.values())
+				self.listReconcileCitRefMetricsBatch(unique_to_reconcile,1)
+				
+				# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
+				# and getting the next batch from those with references and/or citations
+				query_pubs = []
+				query_refs = []
+				for new_pub in unique_to_populate:
+					# Getting the name of the file
+					new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
+					
+					assert new_key not in saved_pubs
+					if new_key in saved_comb:
+						new_pub_file = saved_comb[new_key]
+					else:
+						new_pub_file = os.path.join(results_path,'pub_'+str(pub_counter)+'.json')
+						pub_counter += 1
+					
+					reconciled = False
+					if 'references' in new_pub:
+						reconciled = True
+						query_refs.extend(new_pub['references'])
+						# Fixing the output
+						new_pub['reference_refs'] = new_pub['references']
+						del new_pub['references']
+					if 'citations' in new_pub:
+						reconciled = True
+						query_pubs.extend(new_pub['citations'])
+						# Fixing the output
+						new_pub['citation_refs'] = new_pub['citations']
+						del new_pub['citations']
+					
+					with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
+						json.dump(new_pub,outentry,indent=4,sort_keys=True)
+					
+					saved_comb[new_key] = new_pub_file
+					if reconciled:
+						saved_pubs[new_key] = new_pub_file
+				
+				verbosity_level = verbosity_level - 1
+			
+		else:
+			#print(len(fetchedEntries))
+			#print(json.dumps(fetchedEntries,indent=4))
+			if results_format is "single":
+				jsonOutput = open(results_path,mode="w",encoding="utf-8")
+				print('[',file=jsonOutput)
+				printComma = False
+			else:
+				jsonOutput = None
+			
+			for start in range(0,len(entries),self.step_size):
+				stop = start+self.step_size
+				# This unlinks the input from the output
+				entries_slice = copy.deepcopy(entries[start:stop])
+				self.reconcilePubIdsBatch(entries_slice)
+				self.reconcileCitRefMetricsBatch(entries_slice,verbosityLevel)
+				self.pubC.sync()
+				if jsonOutput is not None:
+					for entry in entries_slice:
+						if printComma:
+							print(',',file=jsonOutput)
+						else:
+							printComma=True
+						json.dump(entry,jsonOutput,indent=4,sort_keys=True)
+				elif results_format is "multiple":
+					filename_prefix = 'entry_' if verbosityLevel == 0  else 'fullentry_'
+					for idx, entry in enumerate(entries_slice):
+						dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
+						with open(dest_file,mode="w",encoding="utf-8") as outentry:
+							json.dump(entry,outentry,indent=4,sort_keys=True)
+			
+			if jsonOutput is not None:
+				print(']',file=jsonOutput)
+				jsonOutput.close()
 		
 		return entries
