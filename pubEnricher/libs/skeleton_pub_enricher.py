@@ -10,6 +10,7 @@ from urllib import request
 from urllib.error import *
 import socket
 
+import datetime
 import time
 
 from abc import ABC, abstractmethod
@@ -200,6 +201,8 @@ class SkeletonPubEnricher(ABC):
 		if results_format == "flat":
 			# This unlinks the input from the output
 			copied_entries = copy.deepcopy(entries)
+			
+			saved_tools = []
 			# Now, gather the tool publication entries
 			filename_prefix = 'pub_tool_'
 			for start in range(0,len(copied_entries),self.step_size):
@@ -209,13 +212,19 @@ class SkeletonPubEnricher(ABC):
 				
 				copied_entries_slice = copy.deepcopy(entries_slice)
 				for idx, entry in enumerate(copied_entries_slice):
-					dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
+					part_dest_file = filename_prefix+str(start+idx)+'.json'
+					dest_file = os.path.join(results_path,part_dest_file)
+					saved_tools.append({
+						'@id': entry['@id'],
+						'file': part_dest_file
+					})
 					with open(dest_file,mode="w",encoding="utf-8") as outentry:
 						json.dump(entry,outentry,indent=4,sort_keys=True)
 			
 			# Recording what we have already fetched (and saved)
 			saved_pubs = {}
 			saved_comb = {}
+			saved_comb_arr = []
 			
 			# The counter for the files being generated
 			pub_counter = 0
@@ -275,7 +284,12 @@ class SkeletonPubEnricher(ABC):
 					if new_key in saved_comb:
 						new_pub_file = saved_comb[new_key]
 					else:
-						new_pub_file = os.path.join(results_path,'pub_'+str(pub_counter)+'.json')
+						part_new_pub_file = 'pub_'+str(pub_counter)+'.json'
+						saved_comb_arr.append({
+							'_id': new_key,
+							'file': part_new_pub_file
+						})
+						new_pub_file = os.path.join(results_path,part_new_pub_file)
 						pub_counter += 1
 					
 					reconciled = False
@@ -304,7 +318,7 @@ class SkeletonPubEnricher(ABC):
 			# Last, save the manifest file
 			manifest_file = os.path.join(results_path,'manifest.json')
 			with open(manifest_file,mode="w",encoding="utf-8") as manifile:
-				json.dump(saved_comb,manifile,indent=4,sort_keys=True)
+				json.dump({'@timestamp': datetime.datetime.now().isoformat(), 'tools': saved_tools, 'publications': saved_comb_arr},manifile,indent=4,sort_keys=True)
 		else:
 			#print(len(fetchedEntries))
 			#print(json.dumps(fetchedEntries,indent=4))
