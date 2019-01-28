@@ -229,7 +229,7 @@ class PubmedEnricher(AbstractPubEnricher):
 		'pubmed_pubmed_refs': pub_common.REFERENCES_KEYS
 	}
 	
-	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False) -> Iterator[Dict[str,Any]]:
 		# First, saving the queries to issue
 		raw_ids = []
 		query_hash = {}
@@ -301,6 +301,7 @@ class PubmedEnricher(AbstractPubEnricher):
 									citrefsG.extend(citrefs)
 							
 							# Now, issue the batch query
-							self.populatePubIds(citrefsG,onlyYear=True)
+							if not minimal:
+								self.populatePubIds(citrefsG,onlyYear=True)
 							
 							yield cite_res
