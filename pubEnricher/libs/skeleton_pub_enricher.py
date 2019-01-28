@@ -197,23 +197,18 @@ class SkeletonPubEnricher(ABC):
 		"""
 		
 		# As flat format is so different from the previous ones, use a separate codepath
-		if results_format is "flat":
-			# First, let's save the tool entries to the directory
-			for i_tool,tool in enumerate(entries):
-				tool_file = os.path.join(results_path,'tool_'+str(i_tool)+'.json')
-				with open(tool_file,mode="w",encoding="utf-8") as toolentry:
-					json.dump(tool,toolentry,indent=4,sort_keys=True)
-			
+		if results_format == "flat":
 			# This unlinks the input from the output
 			copied_entries = copy.deepcopy(entries)
 			# Now, gather the tool publication entries
+			filename_prefix = 'pub_tool_'
 			for start in range(0,len(copied_entries),self.step_size):
 				stop = start+self.step_size
 				entries_slice = copied_entries[start:stop]
 				self.reconcilePubIdsBatch(entries_slice)
 				
-				filename_prefix = 'pub_tool_'
-				for idx, entry in enumerate(entries_slice):
+				copied_entries_slice = copy.deepcopy(entries_slice)
+				for idx, entry in enumerate(copied_entries_slice):
 					dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
 					with open(dest_file,mode="w",encoding="utf-8") as outentry:
 						json.dump(entry,outentry,indent=4,sort_keys=True)
@@ -226,9 +221,17 @@ class SkeletonPubEnricher(ABC):
 			pub_counter = 0
 			query_refs = []
 			query_pubs = self.flattenPubs(copied_entries)
-			while (len(query_pubs) + len(query_refs)) > 0 and verbosity_level >=0:
+			
+			import pprint
+			pp = pprint.PrettyPrinter(indent=4)
+			#pp.pprint(query_pubs)
+			
+			while (len(query_pubs) + len(query_refs)) > 0 and verbosityLevel >=0:
 				# The list of new citations to populate later
-				new_pubs = list(filter(lambda pub: (pub.get('source','') + ':' + pub.get('id','')) not in saved_pubs,query_pubs))
+				if len(query_pubs) > 0:
+					new_pubs = list(filter(lambda pub: (pub.get('source') is not None) and ((pub.get('source','') + ':' + pub.get('id','')) not in saved_pubs),query_pubs))
+				else:
+					new_pubs = []
 				unique_pubs = {}
 				unique_comb_pubs = {}
 				for new_pub in new_pubs:
@@ -237,7 +240,11 @@ class SkeletonPubEnricher(ABC):
 						unique_pubs[new_key] = new_pub
 						unique_comb_pubs[new_key] = new_pub
 				
-				new_ref_pubs = list(filter(lambda pub: (pub.get('source','') + ':' + pub.get('id','')) not in saved_comb,query_refs))
+				if len(query_refs) > 0:
+					#pp.pprint(query_refs)
+					new_ref_pubs = list(filter(lambda pub: (pub.get('source') is not None) and ((pub.get('source','') + ':' + pub.get('id','')) not in saved_comb),query_refs))
+				else:
+					new_ref_pubs = []
 				for new_ref_pub in new_ref_pubs:
 					new_comb_key = new_ref_pub.get('source','') + ':' + new_ref_pub.get('id','')
 					if new_comb_key not in unique_comb_pubs:
@@ -246,13 +253,15 @@ class SkeletonPubEnricher(ABC):
 				if len(unique_comb_pubs) == 0:
 					break
 				
+				print("DEBUG: Level {} Pop {} Rec {}".format(verbosityLevel,len(unique_comb_pubs),len(unique_pubs)),file=sys.stderr)
+				
 				# Obtaining the publication data
 				unique_to_populate = list(unique_comb_pubs.values())
 				self.populatePubIds(unique_to_populate)
 				
-				# The list of new citations to dig in later
+				# The list of new citations to dig in later (as soft as possible)
 				unique_to_reconcile = list(unique_pubs.values())
-				self.listReconcileCitRefMetricsBatch(unique_to_reconcile,1)
+				self.listReconcileCitRefMetricsBatch(unique_to_reconcile,-1)
 				
 				# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
 				# and getting the next batch from those with references and/or citations
@@ -290,12 +299,16 @@ class SkeletonPubEnricher(ABC):
 					if reconciled:
 						saved_pubs[new_key] = new_pub_file
 				
-				verbosity_level = verbosity_level - 1
+				verbosityLevel = verbosityLevel - 1
 			
+			# Last, save the manifest file
+			manifest_file = os.path.join(results_path,'manifest.json')
+			with open(manifest_file,mode="w",encoding="utf-8") as manifile:
+				json.dump(saved_comb,manifile,indent=4,sort_keys=True)
 		else:
 			#print(len(fetchedEntries))
 			#print(json.dumps(fetchedEntries,indent=4))
-			if results_format is "single":
+			if results_format == "single":
 				jsonOutput = open(results_path,mode="w",encoding="utf-8")
 				print('[',file=jsonOutput)
 				printComma = False
@@ -316,7 +329,7 @@ class SkeletonPubEnricher(ABC):
 						else:
 							printComma=True
 						json.dump(entry,jsonOutput,indent=4,sort_keys=True)
-				elif results_format is "multiple":
+				elif results_format == "multiple":
 					filename_prefix = 'entry_' if verbosityLevel == 0  else 'fullentry_'
 					for idx, entry in enumerate(entries_slice):
 						dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
