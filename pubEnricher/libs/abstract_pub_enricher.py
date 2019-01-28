@@ -296,15 +296,19 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 				entry_pub['found_pubs'].extend(winners)
 	
 	@abstractmethod
-	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False) -> Iterator[Dict[str,Any]]:
+		"""
+		query_citations_data: An iterator of dictionaries with at least two keys: source and id
+		minimal: Whether the list of citations and references is "minimal" (minimizing the number of queries) or not
+		"""
 		pass
 	
 	
-	def _reconcileCitRefMetricsBatch(self,query_citations_data:List[Dict[str,Any]],query_hash) -> None:
+	def _reconcileCitRefMetricsBatch(self,query_citations_data:List[Dict[str,Any]],query_hash,minimal:bool=False) -> None:
 		# Update the cache with the new data
 		if len(query_citations_data) > 0:
 			try:
-				new_citations = self.queryCitRefsBatch(query_citations_data)
+				new_citations = self.queryCitRefsBatch(query_citations_data,minimal)
 			except Exception as anyEx:
 				print("ERROR: Something went wrong",file=sys.stderr)
 				print(anyEx,file=sys.stderr)
@@ -370,11 +374,12 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 						query_citations_data.append(pub_field)
 					query_list.append(pub_field)
 		
+		minimal = verbosityLevel == -1
 		# Update the cache with the new data
-		self._reconcileCitRefMetricsBatch(query_citations_data,query_hash)
+		self._reconcileCitRefMetricsBatch(query_citations_data,query_hash,minimal)
 		
 		# If we have to return the digested stats, compute them here
-		if verbosityLevel<=0:
+		if verbosityLevel > -1 and verbosityLevel<=0:
 			for pub_field in pub_list:
 				citations = pub_field.pop('citations',[])
 				# Computing the stats

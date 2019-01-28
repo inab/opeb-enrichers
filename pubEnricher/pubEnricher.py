@@ -34,7 +34,7 @@ if __name__ == "__main__":
 	dof_group.add_argument("-f","--file", help="The results file, in JSON format",nargs=1,dest="results_file")
 	dof_group.add_argument("-p","--path", help="The path to the results. Depending on the format, it may be a file or a directory", nargs=1, dest="results_path")
 	
-	parser.add_argument("--format", help="The output format to be used", nargs=1, choices=["single","multiple","flat"], default=["flat"])
+	parser.add_argument("--format", help="The output format to be used", nargs=1, choices=["single","multiple","flat"], default=["flat"], dest="results_format")
 	
 	parser.add_argument("cacheDir", help="The optional cache directory, to be reused", nargs="?", default=os.path.join(os.getcwd(),"cacheDir"))
 	args = parser.parse_args()
@@ -83,7 +83,7 @@ if __name__ == "__main__":
 	
 	# Creating the cache directory, in case it does not exist
 	os.makedirs(os.path.abspath(cache_dir),exist_ok=True)
-	if results_format is not "single":
+	if results_format != "single":
 		os.makedirs(os.path.abspath(results_path),exist_ok=True)
 	
 	ChosenEnricher = RECOGNIZED_BACKENDS_HASH.get(args.backend,DEFAULT_BACKEND)
@@ -95,6 +95,8 @@ if __name__ == "__main__":
 		# Step 2: reconcile the DOI <-> PubMed id of the entries
 		
 		try:
+			print("* Output format: {} Path: {}".format(results_format,results_path))
+			sys.stdout.flush()
 			pub.reconcilePubIds(fetchedEntries,results_path=results_path,results_format=results_format,verbosityLevel = verbosity_level)
 		except Exception as anyEx:
 			print("ERROR: Something went wrong",file=sys.stderr)

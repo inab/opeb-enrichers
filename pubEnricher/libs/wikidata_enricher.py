@@ -292,7 +292,7 @@ WHERE {{
 		
 		return mappings
 	
-	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]]) -> Iterator[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False) -> Iterator[Dict[str,Any]]:
 		# First, saving the queries to issue
 		results = []
 		for query in query_citations_data:
