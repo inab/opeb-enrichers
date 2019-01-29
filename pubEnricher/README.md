@@ -10,7 +10,8 @@ usage: pubEnricher.py [-h] [-F] [--fully-annotated] [-d]
                       [-b {europepmc,pubmed,wikidata,meta}]
                       [-C CONFIG_FILENAME] [--save-opeb SAVE_OPEB_FILENAME]
                       [--use-opeb LOAD_OPEB_FILENAME]
-                      (-D RESULTS_DIR | -f RESULTS_FILE)
+                      (-D RESULTS_DIR | -f RESULTS_FILE | -p RESULTS_PATH)
+                      [--format {single,multiple,flat}]
                       [cacheDir]
 
 positional arguments:
@@ -37,6 +38,15 @@ optional arguments:
                         Store each separated result in the given directory
   -f RESULTS_FILE, --file RESULTS_FILE
                         The results file, in JSON format
+  -p RESULTS_PATH, --path RESULTS_PATH
+                        The path to the results. Depending on the format, it
+                        may be a file or a directory
+  --format {single,multiple,flat}
+                        The output format to be used
 ```
 
-Although a config file is not needed to run the program, it is needed to customize its behavior. A sample config file is available at [sample-config.ini](sample-config.ini).
+The chosen output format may change the way the results are recovered and some flags implemented.
+
+The most prominent change has been the `flat` format, which implies writing a separate file for each searched tool and found publication, avoiding duplications in the original, nested format. It also generates a `manifest.json` file, describing the generated files.
+
+Although a config file is not needed to run the program, it is needed to customize its behavior. A sample config file is available at [sample-config.ini](sample-config.ini), with embedded descriptions.
