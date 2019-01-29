@@ -191,6 +191,45 @@ class SkeletonPubEnricher(ABC):
 		
 		self.listReconcileCitRefMetricsBatch(linear_pubs,verbosityLevel)
 	
+	def _getUniqueNewPubs(self,query_pubs:List[Dict[str,Any]],query_refs:List[Dict[str,Any]],saved_pubs:Dict[str,str],saved_comb:Dict[str,str]):
+		# The list of new citations to populate later
+		if len(query_pubs) > 0:
+			new_pubs = list(filter(lambda pub: (pub.get('source') is not None) and ((pub.get('source','') + ':' + pub.get('id','')) not in saved_pubs),query_pubs))
+		else:
+			new_pubs = []
+		
+		unique_pubs = {}
+		unique_comb_pubs = {}
+		for new_pub in new_pubs:
+			new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
+			if new_key not in unique_pubs:
+				unique_pubs[new_key] = new_pub
+				unique_comb_pubs[new_key] = new_pub
+		
+			
+		#import pprint
+		#pp = pprint.PrettyPrinter(indent=4)
+		#pp.pprint(query_pubs)
+		
+		if len(query_refs) > 0:
+			#pp.pprint(query_refs)
+			new_ref_pubs = list(filter(lambda pub: (pub.get('source') is not None) and ((pub.get('source','') + ':' + pub.get('id','')) not in saved_comb),query_refs))
+		else:
+			new_ref_pubs = []
+		
+		for new_ref_pub in new_ref_pubs:
+			new_comb_key = new_ref_pub.get('source','') + ':' + new_ref_pub.get('id','')
+			if new_comb_key not in unique_comb_pubs:
+				unique_comb_pubs[new_comb_key] = new_ref_pub
+		
+		if len(unique_comb_pubs) == 0:
+			return None, None
+		
+		# The list to obtain the basic publication data
+		# and the list of new citations to dig in later (as soft as possible)
+		
+		return list(unique_comb_pubs.values()),list(unique_pubs.values())
+	
 	def reconcilePubIds(self,entries:List[Dict[str,Any]],results_path:str=None,results_format:str=None,verbosityLevel:float=0) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
@@ -238,51 +277,24 @@ class SkeletonPubEnricher(ABC):
 			query_refs = []
 			query_pubs = self.flattenPubs(copied_entries)
 			
-			import pprint
-			pp = pprint.PrettyPrinter(indent=4)
-			#pp.pprint(query_pubs)
-			
-			while (len(query_pubs) + len(query_refs)) > 0 and verbosityLevel >=0:
-				# The list of new citations to populate later
-				if len(query_pubs) > 0:
-					new_pubs = list(filter(lambda pub: (pub.get('source') is not None) and ((pub.get('source','') + ':' + pub.get('id','')) not in saved_pubs),query_pubs))
-				else:
-					new_pubs = []
-				unique_pubs = {}
-				unique_comb_pubs = {}
-				for new_pub in new_pubs:
-					new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
-					if new_key not in unique_pubs:
-						unique_pubs[new_key] = new_pub
-						unique_comb_pubs[new_key] = new_pub
+			while (len(query_pubs) + len(query_refs)) > 0 and verbosityLevel > 0:
+				unique_to_populate , unique_to_reconcile = self._getUniqueNewPubs(query_pubs,query_refs,saved_pubs,saved_comb)
 				
-				if len(query_refs) > 0:
-					#pp.pprint(query_refs)
-					new_ref_pubs = list(filter(lambda pub: (pub.get('source') is not None) and ((pub.get('source','') + ':' + pub.get('id','')) not in saved_comb),query_refs))
-				else:
-					new_ref_pubs = []
-				for new_ref_pub in new_ref_pubs:
-					new_comb_key = new_ref_pub.get('source','') + ':' + new_ref_pub.get('id','')
-					if new_comb_key not in unique_comb_pubs:
-						unique_comb_pubs[new_comb_key] = new_ref_pub
-				
-				if len(unique_comb_pubs) == 0:
+				query_pubs = []
+				query_refs = []
+				if unique_to_populate is None:
 					break
 				
-				print("DEBUG: Level {} Pop {} Rec {}".format(verbosityLevel,len(unique_comb_pubs),len(unique_pubs)),file=sys.stderr)
+				print("DEBUG: Level {} Pop {} Rec {}".format(verbosityLevel,len(unique_to_populate),len(unique_to_reconcile)),file=sys.stderr)
 				
 				# Obtaining the publication data
-				unique_to_populate = list(unique_comb_pubs.values())
 				self.populatePubIds(unique_to_populate)
 				
 				# The list of new citations to dig in later (as soft as possible)
-				unique_to_reconcile = list(unique_pubs.values())
 				self.listReconcileCitRefMetricsBatch(unique_to_reconcile,-1)
 				
 				# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
 				# and getting the next batch from those with references and/or citations
-				query_pubs = []
-				query_refs = []
 				for new_pub in unique_to_populate:
 					# Getting the name of the file
 					new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
@@ -324,6 +336,40 @@ class SkeletonPubEnricher(ABC):
 						saved_pubs[new_key] = new_pub_file
 				
 				verbosityLevel = verbosityLevel - 1
+			
+			# Last but one, the border condition
+			if (len(query_pubs) + len(query_refs)) > 0:
+				unique_to_populate , unique_to_reconcile = self._getUniqueNewPubs(query_pubs,query_refs,saved_pubs,saved_comb)
+				
+				if unique_to_populate is not None:
+					print("DEBUG: Last Pop {}".format(len(unique_to_populate)),file=sys.stderr)
+					# Obtaining the publication data
+					self.populatePubIds(unique_to_populate)
+					
+					for new_pub in unique_to_populate:
+						# Getting the name of the file
+						new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
+						
+						assert new_key not in saved_pubs
+						if new_key in saved_comb:
+							new_pub_file = saved_comb[new_key]
+						else:
+							if pub_counter % self.num_files_per_dir == 0:
+								pubs_subpath = 'pubs_'+str(pub_counter)
+								os.makedirs(os.path.abspath(os.path.join(results_path,pubs_subpath)),exist_ok=True)
+							part_new_pub_file = os.path.join(pubs_subpath,'pub_'+str(pub_counter)+'.json')
+							saved_comb_arr.append({
+								'_id': new_key,
+								'file': part_new_pub_file
+							})
+							new_pub_file = os.path.join(results_path,part_new_pub_file)
+							pub_counter += 1
+						
+						with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
+							json.dump(new_pub,outentry,indent=4,sort_keys=True)
+						
+						saved_comb[new_key] = new_pub_file
+					
 			
 			# Last, save the manifest file
 			manifest_file = os.path.join(results_path,'manifest.json')
