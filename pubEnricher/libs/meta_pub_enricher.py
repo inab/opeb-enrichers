@@ -267,9 +267,10 @@ class MetaEnricher(SkeletonPubEnricher):
 			for key in filter(lambda key: key not in self.KEEP_KEYS,citref.keys()):
 				del citref[key]
 	
-	def listReconcileCitRefMetricsBatch(self,linear_pubs:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+	def listReconcileCitRefMetricsBatch(self,linear_pubs:List[Dict[str,Any]],verbosityLevel:float=0,mode:int=3) -> None:
 		"""
-			This method takes in batches of found publications and retrieves citations from ids
+			This method takes in batches of found publications and retrieves
+			citations and / or references from ids
 			hitCount: number of times cited
 				for each citation it retives
 					id: id of the paper it was cited in
@@ -292,7 +293,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		for enricher_name, base_pubs in clustered_pubs.items():
 			enricher = self.enrichers[enricher_name]
 			# for now, ignore the verbosity level, and use the one we need: 1.5
-			enricher.listReconcileCitRefMetricsBatch(base_pubs,1.5)
+			enricher.listReconcileCitRefMetricsBatch(base_pubs,1.5,mode)
 		
 		#print('-cbegin-',file=sys.stderr)
 		#import json
@@ -304,33 +305,46 @@ class MetaEnricher(SkeletonPubEnricher):
 		for merged_pub in linear_pubs:
 			base_pubs = merged_pub.get('base_pubs',[])
 			if base_pubs:
-				merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: ref_pub.get('references') is not None , base_pubs)),verbosityLevel)
-				merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: cit_pub.get('citations') is not None , base_pubs)),verbosityLevel)
+				if (mode & 1) != 0:
+					merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: ref_pub.get('references') is not None , base_pubs)),verbosityLevel)
+				
+				if (mode & 2) != 0:
+					merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: cit_pub.get('citations') is not None , base_pubs)),verbosityLevel)
 				
 				# Cleanup
 				for base_pub in base_pubs:
 					for key in 'references','reference_count','citations','citation_count':
 						base_pub.pop(key,None)
 			else:
-				merged_references = merged_pub.get('references',[])
-				merged_citations = merged_pub.get('citations',[])
+				if (mode & 1) != 0:
+					merged_references = merged_pub.get('references',[])
+				if (mode & 2) != 0:
+					merged_citations = merged_pub.get('citations',[])
 			
-			merged_pub['reference_count'] = len(merged_references)
-			merged_pub['citation_count'] = len(merged_citations)
+			if (mode & 1) != 0:
+				merged_pub['reference_count'] = len(merged_references)
+			if (mode & 2) != 0:
+				merged_pub['citation_count'] = len(merged_citations)
 			
 			if verbosityLevel<=0:
-				merged_pub['citation_stats'] = self._citrefStats(merged_citations)
-				merged_pub['reference_stats'] = self._citrefStats(merged_references)
+				if (mode & 1) != 0:
+					merged_pub['reference_stats'] = self._citrefStats(merged_references)
+				if (mode & 2) != 0:
+					merged_pub['citation_stats'] = self._citrefStats(merged_citations)
 			else:
-				merged_pub['references'] = merged_references
-				merged_pub['citations'] = merged_citations
+				if (mode & 1) != 0:
+					merged_pub['references'] = merged_references
+				if (mode & 2) != 0:
+					merged_pub['citations'] = merged_citations
 				
 				# Remove any key which is not the 'source', 'id', 'year' or 'enricher'
 				if verbosityLevel==1:
-					self._cleanCitRefs(merged_references)
-					self._cleanCitRefs(merged_citations)
+					if (mode & 1) != 0:
+						self._cleanCitRefs(merged_references)
+					if (mode & 2) != 0:
+						self._cleanCitRefs(merged_citations)
 				elif verbosityLevel >=2:
-					self.listReconcileCitRefMetricsBatch(merged_citations,verbosityLevel-1)
+					self.listReconcileCitRefMetricsBatch(merged_citations,verbosityLevel-1,mode)
 
 
 # This is needed for the program itself

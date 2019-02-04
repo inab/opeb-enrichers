@@ -259,7 +259,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	
 	# Documentation at: https://europepmc.org/RestfulWebService#cites
 	CITATION_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
-	def queryCitRefsBatch(self,query_citrefs_data:Iterator[Dict[str,Any]],minimal:bool=False) -> Iterator[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citrefs_data:Iterator[Dict[str,Any]],minimal:bool=False,mode:int=3) -> Iterator[Dict[str,Any]]:
 		for pub_field in query_citrefs_data:
 			_id = pub_field.get('id') #11932250
 			if _id is not None:
@@ -269,12 +269,12 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					'source': source_id,
 				}
 				
-				if pub_field.get('citations') is None:
+				if (mode & 2) != 0 and (pub_field.get('citations') is None):
 					citations, citation_count = self.querySingleCitRef(source_id,_id,True)
 					citref['citations'] = citations
 					citref['citation_count'] = citation_count
 				
-				if pub_field.get('references') is None:
+				if (mode & 1) != 0 and (pub_field.get('references') is None):
 					references, reference_count = self.querySingleCitRef(source_id,_id,False)
 					citref['references'] = references
 					citref['reference_count'] = reference_count

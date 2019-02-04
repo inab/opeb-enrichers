@@ -80,7 +80,7 @@ class SkeletonPubEnricher(ABC):
 		pass
 	
 	@abstractmethod
-	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0,mode:int=3) -> None:
 		"""
 			This method takes in batches of found publications and retrieves citations from ids
 			hitCount: number of times cited
@@ -91,6 +91,30 @@ class SkeletonPubEnricher(ABC):
 					journalAbbreviation: Journal Abbriviations
 		"""
 		pass
+	
+	def listReconcileRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+		"""
+			This method takes in batches of found publications and retrieves citations from ids
+			hitCount: number of times cited
+				for each citation it retives
+					id: id of the paper it was cited in
+					source: from where it was retrived i.e MED = publications from PubMed and MEDLINE
+					pubYear: year of publication
+					journalAbbreviation: Journal Abbriviations
+		"""
+		self.listReconcileCitRefMetricsBatch(pub_list,verbosityLevel,1)
+	
+	def listReconcileCitMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+		"""
+			This method takes in batches of found publications and retrieves citations from ids
+			hitCount: number of times cited
+				for each citation it retives
+					id: id of the paper it was cited in
+					source: from where it was retrived i.e MED = publications from PubMed and MEDLINE
+					pubYear: year of publication
+					journalAbbreviation: Journal Abbriviations
+		"""
+		self.listReconcileCitRefMetricsBatch(pub_list,verbosityLevel,2)
 
 	# This method does the different reads and retries
 	# in case of partial contents
@@ -277,7 +301,9 @@ class SkeletonPubEnricher(ABC):
 			query_refs = []
 			query_pubs = self.flattenPubs(copied_entries)
 			
-			while (len(query_pubs) + len(query_refs)) > 0 and verbosityLevel > 0:
+			depth = 0
+			
+			while (len(query_pubs) + len(query_refs)) > 0 and depth < verbosityLevel:
 				unique_to_populate , unique_to_reconcile = self._getUniqueNewPubs(query_pubs,query_refs,saved_pubs,saved_comb)
 				
 				query_pubs = []
@@ -285,13 +311,14 @@ class SkeletonPubEnricher(ABC):
 				if unique_to_populate is None:
 					break
 				
-				print("DEBUG: Level {} Pop {} Rec {}".format(verbosityLevel,len(unique_to_populate),len(unique_to_reconcile)),file=sys.stderr)
+				print("DEBUG: Level {} Pop {} Rec {}".format(depth,len(unique_to_populate),len(unique_to_reconcile)),file=sys.stderr)
 				
 				# Obtaining the publication data
 				self.populatePubIds(unique_to_populate)
+				self.listReconcileRefMetricsBatch(unique_to_populate,-1)
 				
 				# The list of new citations to dig in later (as soft as possible)
-				self.listReconcileCitRefMetricsBatch(unique_to_reconcile,-1)
+				self.listReconcileCitMetricsBatch(unique_to_reconcile,-1)
 				
 				# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
 				# and getting the next batch from those with references and/or citations
@@ -335,7 +362,7 @@ class SkeletonPubEnricher(ABC):
 					if reconciled:
 						saved_pubs[new_key] = new_pub_file
 				
-				verbosityLevel = verbosityLevel - 1
+				depth += 1
 			
 			# Last but one, the border condition
 			if (len(query_pubs) + len(query_refs)) > 0:
@@ -345,6 +372,7 @@ class SkeletonPubEnricher(ABC):
 					print("DEBUG: Last Pop {}".format(len(unique_to_populate)),file=sys.stderr)
 					# Obtaining the publication data
 					self.populatePubIds(unique_to_populate)
+					self.listReconcileRefMetricsBatch(unique_to_populate,-1)
 					
 					for new_pub in unique_to_populate:
 						# Getting the name of the file
@@ -364,12 +392,18 @@ class SkeletonPubEnricher(ABC):
 							})
 							new_pub_file = os.path.join(results_path,part_new_pub_file)
 							pub_counter += 1
+							
+						if 'references' in new_pub:
+							# Fixing the output
+							new_pub['reference_refs'] = new_pub['references']
+							del new_pub['references']
 						
 						with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
 							json.dump(new_pub,outentry,indent=4,sort_keys=True)
 						
 						saved_comb[new_key] = new_pub_file
-					
+			
+			print("DEBUG: Saved {} publications".format(pub_counter),file=sys.stderr)
 			
 			# Last, save the manifest file
 			manifest_file = os.path.join(results_path,'manifest.json')

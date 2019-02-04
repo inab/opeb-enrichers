@@ -292,7 +292,12 @@ WHERE {{
 		
 		return mappings
 	
-	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False) -> Iterator[Dict[str,Any]]:
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False,mode:int=3) -> Iterator[Dict[str,Any]]:
+		"""
+		This method always issues the search for both citations
+		and references because it is easier (and it is not
+		computationally expensive)
+		"""
 		# First, saving the queries to issue
 		results = []
 		for query in query_citations_data:

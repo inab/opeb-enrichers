@@ -229,10 +229,19 @@ class PubmedEnricher(AbstractPubEnricher):
 		'pubmed_pubmed_refs': pub_common.REFERENCES_KEYS
 	}
 	
-	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False) -> Iterator[Dict[str,Any]]:
+	LINKNAME_MODE_MAP = {
+		1: 'pubmed_pubmed_refs',
+		2: 'pubmed_pubmed_citedin',
+		3: 'pubmed_pubmed_citedin,pubmed_pubmed_refs'
+	}
+	
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False,mode:int=3) -> Iterator[Dict[str,Any]]:
 		# First, saving the queries to issue
 		raw_ids = []
 		query_hash = {}
+		
+		linkname = self.LINKNAME_MODE_MAP.get(mode,self.LINKNAME_MODE_MAP[3])
+		
 		for query in query_citations_data:
 			raw_ids.append(query['id'])
 			query_hash[query['id']] = query
@@ -244,7 +253,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			
 			theLinksQuery = {
 				'dbfrom': 'pubmed',
-				'linkname': 'pubmed_pubmed_citedin,pubmed_pubmed_refs',
+				'linkname': linkname,
 				'id': raw_ids_slice,
 				'db': 'pubmed',
 				'retmode': 'json'
