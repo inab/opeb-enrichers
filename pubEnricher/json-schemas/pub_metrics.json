@@ -269,7 +269,9 @@
 				{
 					"$ref": "#/definitions/FoundAttrs"
 				}
-			]
+			],
+			"additionalProperties": false,
+			"required": ["broken_curie_ids","curie_ids","source","id"]
 		},
 		"FoundPublicationRef": {
 			"title": "A found publication entry ref",
@@ -280,7 +282,9 @@
 				{
 					"$ref": "#/definitions/FoundAttrs"
 				}
-			]
+			],
+			"additionalProperties": false,
+			"required": ["source","id","broken_curie_ids","curie_ids"]
 		},
 		"ToolPublication": {
 			"title": "A publication entry, related to a tool, which was searched",
