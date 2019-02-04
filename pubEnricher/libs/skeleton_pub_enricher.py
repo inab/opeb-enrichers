@@ -312,6 +312,7 @@ class SkeletonPubEnricher(ABC):
 					break
 				
 				print("DEBUG: Level {} Pop {} Rec {}".format(depth,len(unique_to_populate),len(unique_to_reconcile)),file=sys.stderr)
+				sys.stderr.flush()
 				
 				# Obtaining the publication data
 				self.populatePubIds(unique_to_populate)
@@ -344,16 +345,16 @@ class SkeletonPubEnricher(ABC):
 					reconciled = False
 					if 'references' in new_pub:
 						reconciled = True
-						query_refs.extend(new_pub['references'])
+						if new_pub['references'] is not None:
+							query_refs.extend(new_pub['references'])
 						# Fixing the output
-						new_pub['reference_refs'] = new_pub['references']
-						del new_pub['references']
+						new_pub['reference_refs'] = new_pub.pop('references')
 					if 'citations' in new_pub:
 						reconciled = True
-						query_pubs.extend(new_pub['citations'])
+						if new_pub['citations'] is not None:
+							query_pubs.extend(new_pub['citations'])
 						# Fixing the output
-						new_pub['citation_refs'] = new_pub['citations']
-						del new_pub['citations']
+						new_pub['citation_refs'] = new_pub.pop('citations')
 					
 					with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
 						json.dump(new_pub,outentry,indent=4,sort_keys=True)
@@ -370,6 +371,7 @@ class SkeletonPubEnricher(ABC):
 				
 				if unique_to_populate is not None:
 					print("DEBUG: Last Pop {}".format(len(unique_to_populate)),file=sys.stderr)
+					sys.stderr.flush()
 					# Obtaining the publication data
 					self.populatePubIds(unique_to_populate)
 					self.listReconcileRefMetricsBatch(unique_to_populate,-1)
@@ -404,6 +406,7 @@ class SkeletonPubEnricher(ABC):
 						saved_comb[new_key] = new_pub_file
 			
 			print("DEBUG: Saved {} publications".format(pub_counter),file=sys.stderr)
+			sys.stderr.flush()
 			
 			# Last, save the manifest file
 			manifest_file = os.path.join(results_path,'manifest.json')

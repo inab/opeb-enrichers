@@ -324,8 +324,8 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 						citations = new_citation['citations']
 						citation_count = new_citation['citation_count']
 						# There are cases where no citation could be fetched
-						if citations is not None:
-							self.pubC.setCitationsAndCount(source_id,_id,citations,citation_count)
+						# but it should also be cached
+						self.pubC.setCitationsAndCount(source_id,_id,citations,citation_count)
 						for pub_field in query_hash[(_id,source_id)]:
 							pub_field['citation_count'] = citation_count
 							pub_field['citations'] = citations
@@ -334,8 +334,9 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 					if 'references' in new_citation:
 						references = new_citation['references']
 						reference_count = new_citation['reference_count']
-						if references is not None:
-							self.pubC.setReferencesAndCount(source_id,_id,references,reference_count)
+						# There are cases where no reference could be fetched
+						# but it should also be cached
+						self.pubC.setReferencesAndCount(source_id,_id,references,reference_count)
 						for pub_field in query_hash[(_id,source_id)]:
 							pub_field['reference_count'] = reference_count
 							pub_field['references'] = references
@@ -360,20 +361,20 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 				
 				if ( mode & 2 ) != 0:
 					citations, citation_count = self.pubC.getCitationsAndCount(source_id,_id)
-					if citations is not None:
+					if citation_count is not None:
 						# Save now
 						pub_field['citation_count'] = citation_count
 						pub_field['citations'] = citations
 
 				if ( mode & 1 ) != 0:
 					references, reference_count = self.pubC.getReferencesAndCount(source_id,_id)
-					if references is not None:
+					if reference_count is not None:
 						# Save now
 						pub_field['reference_count'] = reference_count
 						pub_field['references'] = references
 				
 				# Query later, without repetitions
-				if ((mode & 2) != 0 and (citations is None)) or ((mode & 1) != 0 and (references is None)):
+				if ((mode & 2) != 0 and (citation_count is None)) or ((mode & 1) != 0 and (reference_count is None)):
 					query_list = query_hash.setdefault((_id,source_id),[])
 					if len(query_list) == 0:
 						query_citations_data.append(pub_field)
@@ -387,14 +388,14 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 		if verbosityLevel > -1 and verbosityLevel<=0:
 			for pub_field in pub_list:
 				if (mode & 2) != 0:
-					citations = pub_field.pop('citations',[])
+					citations = pub_field.pop('citations',None)
 					# Computing the stats
-					pub_field['citation_stats'] = self._citrefStats(citations)
+					pub_field['citation_stats'] = None  if citations is None else self._citrefStats(citations)
 				
 				if (mode & 1) != 0:
-					references = pub_field.pop('references',[])
+					references = pub_field.pop('references',None)
 					# Computing the stats
-					pub_field['reference_stats'] = self._citrefStats(references)
+					pub_field['reference_stats'] = None  if references is None else self._citrefStats(references)
 		elif verbosityLevel > 1:
 			for pub_field in pub_list:
 				if (mode & 2) != 0:

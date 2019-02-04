@@ -220,6 +220,8 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			except HTTPError as e:
 				if e.code == 404:
 					citrefs = None
+					# Needed to properly cache the negative result
+					citref_count = 0
 					# We need to go out the outer loop
 					break
 				else:

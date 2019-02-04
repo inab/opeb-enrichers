@@ -240,7 +240,8 @@ class PubmedEnricher(AbstractPubEnricher):
 		raw_ids = []
 		query_hash = {}
 		
-		linkname = self.LINKNAME_MODE_MAP.get(mode,self.LINKNAME_MODE_MAP[3])
+		search_linkname = self.LINKNAME_MODE_MAP.get(mode,self.LINKNAME_MODE_MAP[3])
+		search_linknames = search_linkname.split(r',')
 		
 		for query in query_citations_data:
 			raw_ids.append(query['id'])
@@ -253,7 +254,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			
 			theLinksQuery = {
 				'dbfrom': 'pubmed',
-				'linkname': linkname,
+				'linkname': search_linkname,
 				'id': raw_ids_slice,
 				'db': 'pubmed',
 				'retmode': 'json'
@@ -281,17 +282,22 @@ class PubmedEnricher(AbstractPubEnricher):
 					if len(ids) > 0:
 						_id = str(ids[0])
 						linksetdbs = linkset.get('linksetdbs',[])
+						
+						query = query_hash[_id]
+						source_id = query['source']
+						cite_res = {
+							'id': _id,
+							'source': source_id
+						}
+						
+						citrefsG = []
+						left_linknames = search_linknames.copy()
+						
+						# The fetched results
 						if len(linksetdbs) > 0:
-							query = query_hash[_id]
-							source_id = query['source']
-							cite_res = {
-								'id': _id,
-								'source': source_id
-							}
-							
-							citrefsG = []
 							for linksetdb in linksetdbs:
 								linkname = linksetdb['linkname']
+								left_linknames.remove(linkname)
 								
 								citrefs_key,citrefs_count_key = self.ELINK_QUERY_MAPPINGS.get(linkname,(None,None))
 								if citrefs_key and citrefs_key not in query:
@@ -308,9 +314,17 @@ class PubmedEnricher(AbstractPubEnricher):
 									cite_res[citrefs_count_key] = len(citrefs)
 									# To the batch of queries
 									citrefsG.extend(citrefs)
-							
-							# Now, issue the batch query
-							if not minimal:
-								self.populatePubIds(citrefsG,onlyYear=True)
-							
-							yield cite_res
+						
+						# the unfetched ones with no error code
+						if len(left_linknames) > 0:
+							for linkname in left_linknames:
+								citrefs_key,citrefs_count_key = self.ELINK_QUERY_MAPPINGS.get(linkname,(None,None))
+								
+								cite_res[citrefs_key] = None
+								cite_res[citrefs_count_key] = 0
+						
+						# Now, issue the batch query
+						if not minimal and (len(citrefsG) > 0):
+							self.populatePubIds(citrefsG,onlyYear=True)
+						
+						yield cite_res

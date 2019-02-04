@@ -181,63 +181,66 @@ class MetaEnricher(SkeletonPubEnricher):
 		doi2citref = {}
 		pmcid2citref = {}
 		
+		oneCitrefExists = False
 		for enricher_name,citrefList in citrefListSet:
 			#print('-mbegin {0}-'.format(enricher_name),file=sys.stderr)
 			#import json
 			#print(json.dumps(citrefList,indent=4),file=sys.stderr)
 			#print('-mend-',file=sys.stderr)
 			#sys.exit(1)
-			for citref in citrefList:
-				merged_citref = None
-				
-				# First, gather what we already know
-				pubmed_id = citref.get('pmid')
-				if pubmed_id is not None:
-					merged_citref = pubmed2citref.get(pubmed_id)
-				
-				doi_id = citref.get('doi')
-				if doi_id:
-					doi_id_norm = pub_common.normalize_doi(doi_id)
+			if citrefList is not None:
+				oneCitrefExists = True
+				for citref in citrefList:
+					merged_citref = None
+					
+					# First, gather what we already know
+					pubmed_id = citref.get('pmid')
+					if pubmed_id is not None:
+						merged_citref = pubmed2citref.get(pubmed_id)
+					
+					doi_id = citref.get('doi')
+					if doi_id:
+						doi_id_norm = pub_common.normalize_doi(doi_id)
+						if merged_citref is None:
+							merged_citref = doi2citref.get(doi_id_norm)
+					else:
+						doi_id_norm = None
+					
+					pmc_id = citref.get('pmcid')
+					if pmc_id:
+						pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+						if merged_citref is None:
+							merged_citref = pmcid2citref.get(pmc_id_norm)
+					else:
+						pmc_id_norm = None
+					
+					# Then, either add or merge
 					if merged_citref is None:
-						merged_citref = doi2citref.get(doi_id_norm)
-				else:
-					doi_id_norm = None
-				
-				pmc_id = citref.get('pmcid')
-				if pmc_id:
-					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
-					if merged_citref is None:
-						merged_citref = pmcid2citref.get(pmc_id_norm)
-				else:
-					pmc_id_norm = None
-				
-				# Then, either add or merge
-				if merged_citref is None:
-					merged_citref = self._initializeMergedEntry({'found_pubs':[citref]},enricher_name)
-					#print('-imebegin-',file=sys.stderr)
-					#import json
-					#print(json.dumps(merged_citref,indent=4),file=sys.stderr)
-					#print('-imeend-',file=sys.stderr)
-					#sys.exit(1)
-					merged_citrefList.append(merged_citref)
-				
-				else:
-					# Merging the info
-					self._initializeMergedEntry({'found_pubs':[citref]},enricher_name,merged_citref)
-					#print('-mmebegin-',file=sys.stderr)
-					#import json
-					#print(json.dumps(citref,indent=4),file=sys.stderr)
-					#print(json.dumps(merged_citref,indent=4),file=sys.stderr)
-					#print('-mmeend-',file=sys.stderr)
-					#sys.exit(1)
-				
-				# Updating internal, in memory citref cache
-				if pubmed_id:
-					pubmed2citref.setdefault(pubmed_id, merged_citref)
-				if doi_id_norm:
-					doi2citref.setdefault(doi_id_norm, merged_citref)
-				if pmc_id_norm:
-					pmcid2citref.setdefault(pmc_id_norm, merged_citref)
+						merged_citref = self._initializeMergedEntry({'found_pubs':[citref]},enricher_name)
+						#print('-imebegin-',file=sys.stderr)
+						#import json
+						#print(json.dumps(merged_citref,indent=4),file=sys.stderr)
+						#print('-imeend-',file=sys.stderr)
+						#sys.exit(1)
+						merged_citrefList.append(merged_citref)
+					
+					else:
+						# Merging the info
+						self._initializeMergedEntry({'found_pubs':[citref]},enricher_name,merged_citref)
+						#print('-mmebegin-',file=sys.stderr)
+						#import json
+						#print(json.dumps(citref,indent=4),file=sys.stderr)
+						#print(json.dumps(merged_citref,indent=4),file=sys.stderr)
+						#print('-mmeend-',file=sys.stderr)
+						#sys.exit(1)
+					
+					# Updating internal, in memory citref cache
+					if pubmed_id:
+						pubmed2citref.setdefault(pubmed_id, merged_citref)
+					if doi_id_norm:
+						doi2citref.setdefault(doi_id_norm, merged_citref)
+					if pmc_id_norm:
+						pmcid2citref.setdefault(pmc_id_norm, merged_citref)
 		
 		#print('-mebegin-',file=sys.stderr)
 		#import json
@@ -246,14 +249,17 @@ class MetaEnricher(SkeletonPubEnricher):
 		#sys.exit(1)
 		
 		# Now, resolve it!
-		resolved_citrefs = []
-		for merged_citref in merged_citrefList:
-			found_citrefs = merged_citref['found_pubs']
-			merged_pub = self._mergeFoundPubs(found_citrefs)
-			if merged_pub:
-				resolved_citrefs.append(merged_pub)
-			else:
-				resolved_citrefs.extend(found_citrefs)
+		if oneCitrefExists:
+			resolved_citrefs = []
+			for merged_citref in merged_citrefList:
+				found_citrefs = merged_citref['found_pubs']
+				merged_pub = self._mergeFoundPubs(found_citrefs)
+				if merged_pub:
+					resolved_citrefs.append(merged_pub)
+				else:
+					resolved_citrefs.extend(found_citrefs)
+		else:
+			resolved_citrefs = None
 		
 		#print('-begin-',file=sys.stderr)
 		#import json
@@ -286,6 +292,7 @@ class MetaEnricher(SkeletonPubEnricher):
 					if (base_pub.get('id') is not None and base_pub.get('source') is None) or (base_pub.get('id') is None and base_pub.get('source') is not None):
 						print('FIXME',file=sys.stderr)
 						print(base_pub,file=sys.stderr)
+						sys.stderr.flush()
 					
 					clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
 		
@@ -306,31 +313,31 @@ class MetaEnricher(SkeletonPubEnricher):
 			base_pubs = merged_pub.get('base_pubs',[])
 			if base_pubs:
 				if (mode & 1) != 0:
-					merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub['references']), filter(lambda ref_pub: ref_pub.get('references') is not None , base_pubs)),verbosityLevel)
+					merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub.get('references')), base_pubs),verbosityLevel)
 				
 				if (mode & 2) != 0:
-					merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub['citations']), filter(lambda cit_pub: cit_pub.get('citations') is not None , base_pubs)),verbosityLevel)
+					merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub.get('citations')), base_pubs),verbosityLevel)
 				
-				# Cleanup
+				# After merge, cleanup
 				for base_pub in base_pubs:
 					for key in 'references','reference_count','citations','citation_count':
 						base_pub.pop(key,None)
 			else:
 				if (mode & 1) != 0:
-					merged_references = merged_pub.get('references',[])
+					merged_references = merged_pub.get('references')
 				if (mode & 2) != 0:
-					merged_citations = merged_pub.get('citations',[])
+					merged_citations = merged_pub.get('citations')
 			
 			if (mode & 1) != 0:
-				merged_pub['reference_count'] = len(merged_references)
+				merged_pub['reference_count'] = 0  if merged_references is None else len(merged_references)
 			if (mode & 2) != 0:
-				merged_pub['citation_count'] = len(merged_citations)
+				merged_pub['citation_count'] = 0  if merged_citations is None else len(merged_citations)
 			
 			if verbosityLevel<=0:
 				if (mode & 1) != 0:
-					merged_pub['reference_stats'] = self._citrefStats(merged_references)
+					merged_pub['reference_stats'] = None  if merged_references is None else self._citrefStats(merged_references)
 				if (mode & 2) != 0:
-					merged_pub['citation_stats'] = self._citrefStats(merged_citations)
+					merged_pub['citation_stats'] = None  if merged_citations is None else self._citrefStats(merged_citations)
 			else:
 				if (mode & 1) != 0:
 					merged_pub['references'] = merged_references
@@ -339,11 +346,11 @@ class MetaEnricher(SkeletonPubEnricher):
 				
 				# Remove any key which is not the 'source', 'id', 'year' or 'enricher'
 				if verbosityLevel==1:
-					if (mode & 1) != 0:
+					if (merged_references is not None) and ((mode & 1) != 0):
 						self._cleanCitRefs(merged_references)
-					if (mode & 2) != 0:
+					if (merged_citations is not None) and ((mode & 2) != 0):
 						self._cleanCitRefs(merged_citations)
-				elif verbosityLevel >=2:
+				elif (merged_citations is not None) and (verbosityLevel >=2):
 					self.listReconcileCitRefMetricsBatch(merged_citations,verbosityLevel-1,mode)
 
 
