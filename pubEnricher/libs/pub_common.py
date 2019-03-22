@@ -13,8 +13,10 @@ class Timestamps(object):
 	def UTCTimestamp(theUTCDate:datetime=datetime.datetime.utcnow()) -> datetime:
 		return theUTCDate.replace(tzinfo=datetime.timezone.utc)
 
+import sys
+
 def print_debug_url(module,sourceURL):
-	print(' '.join(module ,str(Timestamps.LocalTimestamp()),sourceURL),file=sys.stderr)
+	print(' '.join((module,str(Timestamps.LocalTimestamp()),sourceURL)),file=sys.stderr)
 
 
 import re
