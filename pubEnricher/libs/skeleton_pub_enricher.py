@@ -8,7 +8,7 @@ import copy
 
 from urllib import request
 from urllib.error import *
-import socket
+import http,socket
 
 import datetime
 import time
@@ -24,6 +24,7 @@ from . import pub_common
 class SkeletonPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
 	DEFAULT_NUM_FILES_PER_DIR = 1000
+	DEFAULT_MAX_RETRIES = 5
 	
 	@overload
 	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
@@ -54,6 +55,9 @@ class SkeletonPubEnricher(ABC):
 		self.step_size = self.config.getint(section_name,'step_size',fallback=self.DEFAULT_STEP_SIZE)
 		self.num_files_per_dir = self.config.getint(section_name,'num_files_per_dir',fallback=self.DEFAULT_NUM_FILES_PER_DIR)
 		
+		# Maximum number of retries
+		self.max_retries = self.config.getint(section_name,'retries',fallback=self.DEFAULT_MAX_RETRIES)
+		
 		# Debug flag
 		self._debug = debug
 		
@@ -76,8 +80,320 @@ class SkeletonPubEnricher(ABC):
 		return 'skel'
 	
 	@abstractmethod
-	def reconcilePubIdsBatch(self,entries:List[Any]) -> None:
+	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
 		pass
+		
+	def cachedQueryPubIds(self,query_list:List[Dict[str,str]]) -> List[Dict[str,Any]]:
+		"""
+			Caching version of queryPubIdsBatch.
+			Order is not guaranteed
+		"""
+		# First, gather all the ids on one list, prepared for the query
+		# MED: prefix has been removed because there are some problems
+		# on the server side
+		
+		q2e = set()
+		r2e = set()
+		result_array = []
+		
+		def _prefetchCaches(publish_id:str) -> bool:
+			# This one tells us the result was already got
+			if publish_id in q2e:
+				return True
+			
+			# This one signals the result is not in the cache
+			internal_ids = self.pubC.getSourceIds(publish_id)
+			if internal_ids is None:
+				return False
+			
+			# Let's dig in the cached results
+			validMappings = False
+			mappings = [ ]
+			results = [ ]
+			
+			for source_id_pair in internal_ids:
+				# If the result is correct, skip
+				if source_id_pair in r2e:
+					validMappings = True
+					continue
+				
+				mapping = self.pubC.getCachedMapping(*source_id_pair)
+				
+				# If some of the mappings has been invalidated,
+				# complain
+				if mapping is None:
+					return False
+				
+				# If none of the mapping elements expired, register all!
+				validMappings = True
+				mappings.append(mapping)
+				results.append(source_id_pair)
+			
+			# Now all the cached elements have passed the filter
+			# let's register all the values
+			if validMappings:
+				q2e.add(publish_id)
+				if len(results) > 0:
+					r2e.union(*results)
+					result_array.extend(mappings)
+			
+			return validMappings
+		
+		# Preparing the query ids
+		query_ids = []
+		# This set allows avoiding to issue duplicate queries
+		set_query_ids = set()
+		for query in query_list:
+			query_id = {}
+			
+			# This loop avoid resolving twice
+			pubmed_id = query.get('pmid')
+			if pubmed_id is not None and not _prefetchCaches(pubmed_id):
+				pubmed_set_id = (pubmed_id,'pmid')
+				set_query_ids.add(pubmed_set_id)
+				query_id['pmid'] = pubmed_id
+			
+			doi_id = query.get('doi')
+			if doi_id is not None:
+				doi_id_norm = pub_common.normalize_doi(doi_id)
+				if not _prefetchCaches(doi_id_norm):
+					doi_set_id = (doi_id_norm,'doi')
+					set_query_ids.add(doi_set_id)
+					query_id['doi'] = doi_id_norm
+			
+			pmc_id = query.get('pmcid')
+			if pmc_id is not None:
+				pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+				if not _prefetchCaches(pmc_id_norm):
+					pmc_set_id = (pmc_id_norm,'pmcid')
+					set_query_ids.add(pmc_set_id)
+					query_id['pmcid'] = pmc_id_norm
+			
+			# Add it when there is something to query about
+			if len(query_id) > 0:
+				query_ids.append(query_id)
+		
+		# Now, with the unknown ones, let's ask the server
+		if len(query_ids) > 0:
+			try:
+				gathered_pubmed_pairs = self.queryPubIdsBatch(query_ids)
+				
+				if gathered_pubmed_pairs:
+					for mapping in gathered_pubmed_pairs:
+						# Cache management
+						self.pubC.setCachedMapping(mapping)
+						
+					# Result management
+					result_array.extend(gathered_pubmed_pairs)
+			except Exception as anyEx:
+				print("Something unexpected happened",file=sys.stderr)
+				print(anyEx,file=sys.stderr)
+				raise anyEx
+		
+		return result_array
+		
+		
+	def reconcilePubIdsBatch(self,entries:List[Any]) -> None:
+		# First, gather all the ids on one list, prepared for the query
+		# MED: prefix has been removed because there are some problems
+		# on the server side
+		
+		p2e = {}
+		pmc2e = {}
+		d2e = {}
+		pubmed_pairs = []
+		
+		def _updateCaches(publish_id:str) -> bool:
+			internal_ids = self.pubC.getSourceIds(publish_id)
+			if internal_ids is not None:
+				validMappings = 0
+				for source_id,_id in internal_ids:
+					mapping = self.pubC.getCachedMapping(source_id,_id)
+					# If the mapping did not expire, register it!
+					if mapping is not None:
+						validMappings += 1
+						pubmed_pairs.append(mapping)
+						
+						pubmed_id = mapping.get('pmid')
+						if pubmed_id is not None:
+							p2e.setdefault(pubmed_id,{})[source_id] = mapping
+						
+						doi_id = mapping.get('doi')
+						if doi_id is not None:
+							doi_id_norm = pub_common.normalize_doi(doi_id)
+							d2e.setdefault(doi_id_norm,{})[source_id] = mapping
+						
+						pmc_id = mapping.get('pmcid')
+						if pmc_id is not None:
+							pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+							pmc2e.setdefault(pmc_id_norm,{})[source_id] = mapping
+				
+				return validMappings > 0
+			else:
+				return False
+		
+		# Preparing the query ids
+		query_ids = []
+		# This set allows avoiding to issue duplicate queries
+		set_query_ids = set()
+		for entry_pubs in map(lambda entry: entry['entry_pubs'],entries):
+			for entry_pub in entry_pubs:
+				query_id = {}
+				# This loop avoid resolving twice
+				pubmed_id = entry_pub.get('pmid')
+				pubmed_set_id = (pubmed_id,'pmid')
+				if pubmed_id is not None and pubmed_set_id not in set_query_ids and pubmed_id not in p2e:
+					if not _updateCaches(pubmed_id):
+						set_query_ids.add(pubmed_set_id)
+						query_id['pmid'] = pubmed_id
+						
+				
+				doi_id = entry_pub.get('doi')
+				if doi_id is not None:
+					doi_id_norm = pub_common.normalize_doi(doi_id)
+					doi_set_id = (doi_id_norm,'doi')
+					if doi_set_id not in set_query_ids and doi_id_norm not in d2e and not _updateCaches(doi_id_norm):
+						set_query_ids.add(doi_set_id)
+						query_id['doi'] = doi_id_norm
+				
+				pmc_id = entry_pub.get('pmcid')
+				if pmc_id is not None:
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					pmc_set_id = (pmc_id_norm,'pmcid')
+					if pmc_set_id not in set_query_ids and pmc_id_norm not in pmc2e and not _updateCaches(pmc_id_norm):
+						set_query_ids.add(pmc_set_id)
+						query_id['pmcid'] = pmc_id_norm
+				
+				# Add it when there is something to query about
+				if len(query_id) > 0:
+					query_ids.append(query_id)
+		
+		# Now, with the unknown ones, let's ask the server
+		if len(query_ids) > 0:
+			try:
+				gathered_pubmed_pairs = self.queryPubIdsBatch(query_ids)
+				
+				# Cache management
+				for mapping in gathered_pubmed_pairs:
+					_id = mapping['id']
+					source_id = mapping['source']
+					self.pubC.setCachedMapping(mapping)
+					
+					pubmed_id = mapping.get('pmid')
+					if pubmed_id is not None:
+						p2e.setdefault(pubmed_id,{})[source_id] = mapping
+					
+					pmc_id = mapping.get('pmcid')
+					if pmc_id is not None:
+						pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+						pmc2e.setdefault(pmc_id_norm,{})[source_id] = mapping
+					
+					doi_id = mapping.get('doi')
+					if doi_id is not None:
+						doi_id_norm = pub_common.normalize_doi(doi_id)
+						d2e.setdefault(doi_id_norm,{})[source_id] = mapping
+					
+					pubmed_pairs.append(mapping)
+
+					# print(json.dumps(entries,indent=4))
+				# sys.exit(1)
+			except Exception as anyEx:
+				print("Something unexpected happened",file=sys.stderr)
+				print(anyEx,file=sys.stderr)
+				raise anyEx
+		
+		# Reconciliation and checking missing ones
+		for entry in entries:
+			for entry_pub in entry['entry_pubs']:
+				broken_curie_ids = []
+				initial_curie_ids = []
+				
+				results = []
+				pubmed_id = entry_pub.get('pmid')
+				if pubmed_id is not None:
+					curie_id = pub_common.pmid2curie(pubmed_id)
+					initial_curie_ids.append(curie_id)
+					if pubmed_id in p2e:
+						results.append(p2e[pubmed_id])
+					else:
+						broken_curie_ids.append(curie_id)
+				
+				doi_id = entry_pub.get('doi')
+				if doi_id is not None:
+					curie_id = pub_common.doi2curie(doi_id)
+					initial_curie_ids.append(curie_id)
+					doi_id_norm = pub_common.normalize_doi(doi_id)
+					if doi_id_norm in d2e:
+						results.append(d2e[doi_id_norm])
+					else:
+						broken_curie_ids.append(curie_id)
+				
+				pmc_id = entry_pub.get('pmcid')
+				if pmc_id is not None:
+					curie_id = pub_common.pmcid2curie(pmc_id)
+					initial_curie_ids.append(curie_id)
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					if pmc_id_norm in pmc2e:
+						results.append(pmc2e[pmc_id_norm])
+					else:
+						broken_curie_ids.append(curie_id)
+				
+				# Checking all the entries at once
+				winner_set = None
+				notFound = len(results) == 0
+				for result in results:
+					if winner_set is None:
+						winner_set = result
+					elif winner_set != result:
+						winner = None
+						break
+				
+				winners = []
+				if winner_set is not None:
+					for winner in iter(winner_set.values()):
+						# Duplicating in order to augment it
+						new_winner = copy.deepcopy(winner)
+						
+						curie_ids = []
+						
+						pubmed_id = new_winner.get('pmid')
+						if pubmed_id is not None:
+							curie_id = pub_common.pmid2curie(pubmed_id)
+							curie_ids.append(curie_id)
+						
+						doi_id = new_winner.get('doi')
+						if doi_id is not None:
+							curie_id = pub_common.doi2curie(doi_id)
+							curie_ids.append(curie_id)
+						
+						pmc_id = new_winner.get('pmcid')
+						if pmc_id is not None:
+							curie_id = pub_common.pmcid2curie(pmc_id)
+							curie_ids.append(curie_id)
+						
+						new_winner['curie_ids'] = curie_ids
+						new_winner['broken_curie_ids'] = broken_curie_ids
+						winners.append(new_winner)
+				else:
+					broken_winner = {
+						'id': None,
+						'source': None,
+						'curie_ids': initial_curie_ids,
+						'broken_curie_ids': broken_curie_ids,
+						'pmid': pubmed_id,
+						'doi': doi_id,
+						'pmcid': pmc_id
+					}
+					# No possible result
+					if notFound:
+						broken_winner['reason'] = 'notFound' if len(initial_curie_ids) > 0  else 'noReference'
+					# There were mismatches
+					else:
+						broken_winner['reason'] = 'mismatch'
+					
+					winners.append(broken_winner)
+				
+				entry_pub['found_pubs'].extend(winners)
 	
 	@abstractmethod
 	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0,mode:int=3) -> None:
@@ -253,6 +569,51 @@ class SkeletonPubEnricher(ABC):
 		# and the list of new citations to dig in later (as soft as possible)
 		
 		return list(unique_comb_pubs.values()),list(unique_pubs.values())
+	
+	
+	@classmethod
+	def populateMapping(cls,base_mapping:Dict[str,Any],dest_mapping:Dict[str,Any],onlyYear:bool=False) -> None:
+		if onlyYear:
+			dest_mapping['year'] = base_mapping.get('year')
+		else:
+			dest_mapping.update(base_mapping)
+	
+	@abstractmethod
+	def populatePubIdsBatch(self,partial_mappings:List[Dict[str,Any]]) -> None:
+		pass
+	
+	def populatePubIds(self,partial_mappings:List[Dict[str,Any]],onlyYear:bool=False) -> None:
+		populable_mappings = []
+		
+		for partial_mapping in partial_mappings:
+			# We are interested only in the year facet
+			# as it is a kind of indicator
+			pubYear = partial_mapping.get('year')
+			_id = partial_mapping.get('id')
+			# There can be corrupted or incomplete entries
+			# in the source
+			source_id = partial_mapping.get('source')
+			if _id is not None and source_id is not None and (pubYear is None or not onlyYear):
+				mapping = self.pubC.getCachedMapping(source_id,_id)
+				
+				# Not found or expired mapping?
+				if mapping is None:
+					populable_mappings.append(partial_mapping)
+				else:
+					self.populateMapping(mapping,partial_mapping,onlyYear)
+		
+		if len(populable_mappings) > 0:
+			for start in range(0,len(populable_mappings),self.step_size):
+				stop = start+self.step_size
+				populable_mappings_slice = populable_mappings[start:stop]
+				populable_mappings_clone_slice = list(map(lambda p_m: { 'id': p_m['id'], 'source': p_m['source'] } , populable_mappings_slice))
+				self.populatePubIdsBatch(populable_mappings_clone_slice)
+			
+				for p_m,p_m_c in zip(populable_mappings_slice,populable_mappings_clone_slice):
+					# It is a kind of indicator the 'year' flag
+					if p_m_c.get('year') is not None:
+						self.pubC.setCachedMapping(p_m_c)
+						self.populateMapping(p_m_c,p_m,onlyYear)
 	
 	def reconcilePubIds(self,entries:List[Dict[str,Any]],results_path:str=None,results_format:str=None,verbosityLevel:float=0) -> List[Any]:
 		"""

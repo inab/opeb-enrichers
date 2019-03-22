@@ -9,10 +9,12 @@ from collections import OrderedDict
 import copy
 
 #from multiprocessing import Process, Queue, Lock
+import threading
+import queue
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
-from .pub_cache import PubCache
+from .pub_cache import MetaPubCache, PubCache
 from .skeleton_pub_enricher import SkeletonPubEnricher
 from .europepmc_enricher import EuropePMCEnricher
 from .pubmed_enricher import PubmedEnricher
@@ -20,9 +22,44 @@ from .wikidata_enricher import WikidataEnricher
 
 from . import pub_common
 
+def _thread_target(q, method, *args):
+	# We are saving either the result or any fired exception
+	try:
+		q.put(method(*args))
+	except BaseException as e:
+		q.put(e)
+
+def _thread_wrapper(method,*args):
+	eq = queue.Queue()
+	et = threading.Thread(
+		target=_thread_target,
+		args=(eq,method,*args)
+	)
+	et.start()
+	
+	return (et,eq)
+
+
 class MetaEnricher(SkeletonPubEnricher):
 	RECOGNIZED_BACKENDS = [ EuropePMCEnricher, PubmedEnricher, WikidataEnricher ]
 	RECOGNIZED_BACKENDS_HASH = OrderedDict( ( (backend.Name(),backend) for backend in RECOGNIZED_BACKENDS ) )
+	ATTR_BLACKSET = {
+		'id',
+		'source',
+		'enricher',
+		'curie_ids',
+		'base_pubs',
+		'broken_curie_ids',
+		'citation_count',
+		'citation_refs',
+		'citation_stats',
+		'citations',
+		'reason',
+		'reference_count',
+		'reference_refs',
+		'reference_stats',
+		'references',
+	}
 	
 	@overload
 	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
@@ -37,23 +74,36 @@ class MetaEnricher(SkeletonPubEnricher):
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,prefix,config,debug)
-		
 		# The section name is the symbolic name given to this class
 		section_name = self.Name()
 		
 		# Create the instances needed by this meta enricher
-		use_enrichers_str = self.config.get(section_name,'use_enrichers',fallback=None)
+		use_enrichers_str = config.get(section_name,'use_enrichers',fallback=None)
 		
 		use_enrichers = use_enrichers_str.split(',')  if use_enrichers_str else self.RECOGNIZED_BACKENDS_HASH.keys()
 		
-		self.enrichers = OrderedDict()
+		enrichers = OrderedDict()
 		for enricher_name in use_enrichers:
 			enricher_class = self.RECOGNIZED_BACKENDS_HASH.get(enricher_name)
 			if enricher_class:
-				compound_prefix = prefix + enricher_name if prefix else enricher_name
+				compound_prefix = prefix + '_' + enricher_name if prefix else '_' + enricher_name
 				# Each value is an instance of AbstractPubEnricher
-				self.enrichers[enricher_name] = enricher_class(cache,compound_prefix,config,debug)
+				enrichers[enricher_name] = enricher_class(cache,compound_prefix,config,debug)
+		
+		# And last, the meta-enricher itself
+		meta_prefix = prefix + section_name  if prefix else section_name
+		meta_prefix += '-'.join(enrichers.keys())
+		meta_prefix = '_' + meta_prefix + '_'
+		
+		# And the meta-cache
+		if type(cache) is str:
+			pubC = MetaPubCache(cache,prefix=meta_prefix)
+		else:
+			pubC = cache
+		
+		super().__init__(pubC,meta_prefix,config,debug)
+		
+		self.enrichers = enrichers
 	
 	def __enter__(self):
 		super().__enter__()
@@ -75,7 +125,11 @@ class MetaEnricher(SkeletonPubEnricher):
 		return cls.META_SOURCE
 	
 	# Specific methods
-	def _initializeMergedEntry(self,entry:Dict[str,Any],entry_enricher:str,base_entry:Dict[str,Any]=None) -> Dict[str,Any]:
+	def _initializeMergingEntry(self,entry:Dict[str,Any],entry_enricher:str,base_entry:Dict[str,Any]=None) -> Dict[str,Any]:
+		"""
+			This method initializes the structures used to gather the results from the different enrichers to be merged
+		"""
+		
 		merged_entry = copy.deepcopy(entry)
 		found_pubs = merged_entry.setdefault('found_pubs',[])
 		for found_pub in found_pubs:
@@ -104,29 +158,127 @@ class MetaEnricher(SkeletonPubEnricher):
 		return base_entry
 	
 	def _mergeFoundPubs(self,found_pubs:List[Dict[str,Any]]) -> Dict[str,Any]:
+		"""
+			This method takes an array of fetched entries, which have to be merged
+			and it returns a merged entry
+		"""
+		
 		merged_pub = None
 		if found_pubs:
-			base_pubs = found_pubs
+			base_pubs = []
+			initial_curie_ids = []
+			putative_ids = []
+			# Step 1: initialize features
+			merged_pub = {
+				'source': self.META_SOURCE,
+				'base_pubs': base_pubs,
+				'curie_ids': initial_curie_ids,
+			}
 			for i_found_pub,base_found_pub in enumerate(found_pubs):
 				if base_found_pub['id'] is not None:
-					merged_pub = copy.deepcopy(base_found_pub)
-					for found_pub in found_pubs[i_found_pub+1:]:
-						if found_pub['id'] is not None:
-							for key,val in found_pub.items():
-								# This gives a chance to initialize an unknown field
-								if merged_pub.get(key) is None:
-									merged_pub[key] = val
-					
-					#merged_pub['base_pubs'] = base_pubs
-					# We only need the reduced form for the next step
-					merged_pub['base_pubs'] = [ {'id': pub['id'],'source':pub['source'],'enricher':pub['enricher']}  for pub in found_pubs ]
-					merged_pub['source'] = self.META_SOURCE
-					merged_pub['id'] =  '-'.join(map(lambda pub: pub['enricher']+':'+pub['source']+':'+pub['id'] , filter(lambda pub: pub['id'] is not None and pub['source'] is not None, merged_pub['base_pubs'])))
-					del merged_pub['enricher']
-					
-					break
-		
+					base_pubs.append({'id': base_found_pub['id'],'source': base_found_pub['source'],'enricher': base_found_pub['enricher']})
+					for key,val in base_found_pub.items():
+						# Should we skip specific fields?
+						# This gives a chance to initialize an unknown field
+						if (key in self.ATTR_BLACKSET) or (val is None):
+							continue
+						
+						# TODO: conflict detection, when a source missets an identifier
+						# Only interesting
+						merged_pub.setdefault(key,val)
+			
+			pubmed_id = merged_pub.get('pmid')
+			if pubmed_id is not None:
+				curie_id = pub_common.pmid2curie(pubmed_id)
+				initial_curie_ids.append(curie_id)
+				putative_ids.append(pubmed_id)
+			
+			doi_id = merged_pub.get('doi')
+			if doi_id is not None:
+				curie_id = pub_common.doi2curie(doi_id)
+				initial_curie_ids.append(curie_id)
+				doi_id_norm = pub_common.normalize_doi(doi_id)
+				putative_ids.append(doi_id_norm)
+			
+			pmc_id = merged_pub.get('pmcid')
+			if pmc_id is not None:
+				curie_id = pub_common.pmcid2curie(pmc_id)
+				initial_curie_ids.append(curie_id)
+				pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+				putative_ids.append(pmc_id_norm)
+			
+			# Now use the first putative id
+			merged_pub['id'] = putative_ids[0]
+			
 		return merged_pub
+	
+	def _mergeFoundPubsList(self,merging_list:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+		"""
+			This method takes an array of fetched entries, which could be merged
+			in several ways, it groups the results, and returns the list of
+			merged entries from those groups
+		"""
+		merged_results = []
+		if merging_list:
+			i2r = {}
+			i2e = {}
+			# Cluster by ids
+			for merging_elem in merging_list:
+				eId = None
+				notSet = True
+				
+				pubmed_id = merging_elem.get('pmid')
+				if pubmed_id is not None:
+					if pubmed_id in i2r:
+						eId = i2r[pubmed_id]
+					else:
+						eId = pubmed_id
+						i2r[pubmed_id] = eId
+					
+					i2e.setdefault(eId,[]).append(merging_elem)
+					notSet = False
+				
+				pmc_id = merging_elem.get('pmcid')
+				if pmc_id is not None:
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					if eId is None:
+						if pmc_id_norm in i2r:
+							eId = i2r[pmc_id_norm]
+						else:
+							eId = pmc_id_norm
+					
+					if pmc_id_norm not in i2r:
+						i2r[pmc_id_norm] = eId
+					
+					# Avoid duplications
+					if notSet:
+						i2e.setdefault(eId,[]).append(merging_elem)
+						notSet = False
+				
+				doi_id = merging_elem.get('doi')
+				if doi_id is not None:
+					doi_id_norm = pub_common.normalize_doi(doi_id)
+					if eId is None:
+						if doi_id_norm in i2r:
+							eId = i2r[doi_id_norm]
+						else:
+							eId = doi_id_norm
+					
+					if doi_id_norm not in i2r:
+						i2r[doi_id_norm] = eId
+					
+					# Avoid duplications
+					if notSet:
+						i2e.setdefault(eId,[]).append(merging_elem)
+						notSet = False
+			
+			# After clustering the results, it is time to merge them
+			# Duplicates should have been avoided (if possible)
+			for found_pubs in i2e.values():
+				merged_pub = self._mergeFoundPubs(found_pubs)
+				merged_results.append(merged_pub)
+		
+		return merged_results
 	
 	def _transformIntoMergedPub(self,opeb_entry_pub):
 		found_pubs = opeb_entry_pub['found_pubs']
@@ -140,132 +292,96 @@ class MetaEnricher(SkeletonPubEnricher):
 		#print(json.dumps(opeb_entry_pub,indent=4),file=sys.stderr)
 		#print('-end-',file=sys.stderr)
 	
-	def reconcilePubIdsBatch(self,opeb_entries:List[Any]) -> None:
-		# We need to save the original state before any call
-		pristine_opeb_entries = copy.deepcopy(opeb_entries)
-		initialized = False
+	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
+		# Spawning the threads
+		thread_pool = []
 		for enricher_name, enricher  in self.enrichers.items():
-			enriched_entries = copy.deepcopy(pristine_opeb_entries)  if initialized else opeb_entries
-			
-			enricher.reconcilePubIdsBatch(enriched_entries)
-				
-			if initialized:
-				for base_entry_pubs, entry_pubs in zip(map(lambda entry: entry.get('entry_pubs',[]),opeb_entries),map(lambda entry: entry.get('entry_pubs',[]),enriched_entries)):
-					for base_entry,entry in zip(base_entry_pubs,entry_pubs):
-						# The base_entry receives this merged entry
-						self._initializeMergedEntry(entry,enricher_name,base_entry)
-			else:
-				initialized = True
-				# Redoing the results to something understandable
-				for opeb_entry_pubs in map(lambda opeb_entry: opeb_entry['entry_pubs'],opeb_entries):
-					initialized_entry_pubs = [ self._initializeMergedEntry(entry_pub,enricher_name)  for entry_pub in opeb_entry_pubs]
-					opeb_entry_pubs.clear()
-					opeb_entry_pubs.extend(initialized_entry_pubs)
-			
+			# We need the queue to put the returned results in some place
+			et, eq = _thread_wrapper(enricher.cachedQueryPubIds,query_ids)
+			thread_pool.append((et,eq,enricher_name))
 		
-		# Now, merge!!!!
-		for opeb_entry_pubs in map(lambda opeb_entry: opeb_entry['entry_pubs'],opeb_entries):
-			for opeb_entry_pub in opeb_entry_pubs:
-				self._transformIntoMergedPub(opeb_entry_pub)
-		#print('-obegin-',file=sys.stderr)
-		#import json
-		#print(json.dumps(opeb_entry_pubs,indent=4),file=sys.stderr)
-		#print('-oend-',file=sys.stderr)
-		#sys.exit(1)
+		# Now, we gather the work of all threaded enrichers
+		merging_list = []
+		for et, eq, enricher_name  in thread_pool:
+			# wait for it
+			et.join()
+			
+			# The result (or the exception) is in the queue
+			gathered_pairs = eq.get()
+			
+			# Kicking up the exception, so it is managed elsewhere
+			if isinstance(gathered_pairs, BaseException):
+				raise gathered_pairs
+			
+			# Labelling the results, so we know the enricher
+			for gathered_pair in gathered_pairs:
+				gathered_pair['enricher'] = enricher_name
+			
+			merging_list.extend(gathered_pairs)
+		
+		del thread_pool
+		
+		# and we process it
+		merged_results = self._mergeFoundPubsList(merging_list)
+		
+		return merged_results
 	
-	# It merges one or more citations of reference lists
-	def _mergeCitRef(self,citrefListSet:Iterator[Tuple[str,List[Dict[str,Any]]]],verbosityLevel:float) -> List[Dict[str,Any]]:
-		merged_citrefList = []
-		# The inverse correspondence
-		pubmed2citref = {}
-		doi2citref = {}
-		pmcid2citref = {}
+	def populatePubIdsBatch(self,partial_mappings:List[Dict[str,Any]]) -> None:
+		if partial_mappings:
+			raise Exception('FATAL ERROR: Cache miss. Should not happen')
+	
+		# Now, time to check and update cache
+		partialToBeSearched = []
+		i2e = {}
+		for iPartial, partial_mapping in enumerate(partial_mappings):
+			cached_mappings = self.pubC.getRawCachedMappingsFromPartial(partial_mapping)
+			
+			if cached_mappings:
+				# Right now, we are not going to deal with conflicts at this level
+				partial_mapping.update(cached_mappings[0])
+			else:
+				partialToBeSearched.append(partial_mapping)
+				
+				# Tracking where to place the results later
+				pubmed_id = partial_mapping.get('pmid')
+				if pubmed_id is not None:
+					i2e.setdefault(pubmed_id,[]).append(iPartial)
+				
+				pmc_id = partial_mapping.get('pmcid')
+				if pmc_id is not None:
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					i2e.setdefault(pmc_id_norm,[]).append(iPartial)
+				
+				doi_id = partial_mapping.get('doi')
+				if doi_id is not None:
+					doi_id_norm = pub_common.normalize_doi(doi_id)
+					i2e.setdefault(doi_id_norm,[]).append(iPartial)
 		
-		oneCitrefExists = False
-		for enricher_name,citrefList in citrefListSet:
-			#print('-mbegin {0}-'.format(enricher_name),file=sys.stderr)
-			#import json
-			#print(json.dumps(citrefList,indent=4),file=sys.stderr)
-			#print('-mend-',file=sys.stderr)
-			#sys.exit(1)
-			if citrefList is not None:
-				oneCitrefExists = True
-				for citref in citrefList:
-					merged_citref = None
-					
-					# First, gather what we already know
-					pubmed_id = citref.get('pmid')
-					if pubmed_id is not None:
-						merged_citref = pubmed2citref.get(pubmed_id)
-					
-					doi_id = citref.get('doi')
-					if doi_id:
-						doi_id_norm = pub_common.normalize_doi(doi_id)
-						if merged_citref is None:
-							merged_citref = doi2citref.get(doi_id_norm)
-					else:
-						doi_id_norm = None
-					
-					pmc_id = citref.get('pmcid')
-					if pmc_id:
-						pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
-						if merged_citref is None:
-							merged_citref = pmcid2citref.get(pmc_id_norm)
-					else:
-						pmc_id_norm = None
-					
-					# Then, either add or merge
-					if merged_citref is None:
-						merged_citref = self._initializeMergedEntry({'found_pubs':[citref]},enricher_name)
-						#print('-imebegin-',file=sys.stderr)
-						#import json
-						#print(json.dumps(merged_citref,indent=4),file=sys.stderr)
-						#print('-imeend-',file=sys.stderr)
-						#sys.exit(1)
-						merged_citrefList.append(merged_citref)
-					
-					else:
-						# Merging the info
-						self._initializeMergedEntry({'found_pubs':[citref]},enricher_name,merged_citref)
-						#print('-mmebegin-',file=sys.stderr)
-						#import json
-						#print(json.dumps(citref,indent=4),file=sys.stderr)
-						#print(json.dumps(merged_citref,indent=4),file=sys.stderr)
-						#print('-mmeend-',file=sys.stderr)
-						#sys.exit(1)
-					
-					# Updating internal, in memory citref cache
-					if pubmed_id:
-						pubmed2citref.setdefault(pubmed_id, merged_citref)
-					if doi_id_norm:
-						doi2citref.setdefault(doi_id_norm, merged_citref)
-					if pmc_id_norm:
-						pmcid2citref.setdefault(pmc_id_norm, merged_citref)
-		
-		#print('-mebegin-',file=sys.stderr)
-		#import json
-		#print(json.dumps(merged_citrefList,indent=4),file=sys.stderr)
-		#print('-meend-',file=sys.stderr)
-		#sys.exit(1)
-		
-		# Now, resolve it!
-		if oneCitrefExists:
-			resolved_citrefs = []
-			for merged_citref in merged_citrefList:
-				found_citrefs = merged_citref['found_pubs']
-				merged_pub = self._mergeFoundPubs(found_citrefs)
-				if merged_pub:
-					resolved_citrefs.append(merged_pub)
-				else:
-					resolved_citrefs.extend(found_citrefs)
-		else:
-			resolved_citrefs = None
-		
-		#print('-begin-',file=sys.stderr)
-		#import json
-		#print(json.dumps(resolved_citrefs,indent=4),file=sys.stderr)
-		#print('-end-',file=sys.stderr)
-		return resolved_citrefs
+		# Update cache with a new search
+		if partialToBeSearched:
+			rescuedPartials = self.cachedQueryPubIds(partialToBeSearched)
+			for rescuedPartial in rescuedPartials:
+				destPlaces = []
+				
+				pubmed_id = rescuedPartial.get('pmid')
+				if pubmed_id is not None:
+					destPlaces.extend(i2e.get(pubmed_id,[]))
+				
+				pmc_id = rescuedPartial.get('pmcid')
+				if pmc_id is not None:
+					pmc_id_norm = pub_common.normalize_pmcid(pmc_id)
+					destPlaces.extend(i2e.get(pmc_id_norm,[]))
+				
+				doi_id = rescuedPartial.get('doi')
+				if doi_id is not None:
+					doi_id_norm = pub_common.normalize_doi(doi_id)
+					destPlaces.extend(i2e.get(doi_id_norm,[]))
+				
+				# Only the distinct ones
+				if destPlaces:
+					destPlaces = list(set(destPlaces))
+					for destPlace in destPlaces:
+						partial_mappings[destPlace] = rescuedPartial
 	
 	KEEP_KEYS=('source', 'id', 'year', 'enricher')
 	def _cleanCitRefs(self,citrefs:List[Dict[str,Any]]) -> None:
@@ -284,6 +400,8 @@ class MetaEnricher(SkeletonPubEnricher):
 					pubYear: year of publication
 					journalAbbreviation: Journal Abbriviations
 		"""
+		
+		# The publications are clustered by their original enricher
 		clustered_pubs = {}
 		for pub in linear_pubs:
 			# This can happen when no result was found
@@ -296,11 +414,28 @@ class MetaEnricher(SkeletonPubEnricher):
 					
 					clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
 		
-		# After clustering, issue the batch calls to each enricher
+		# After clustering, issue the batch calls to each threaded enricher
+		thread_pool = []
 		for enricher_name, base_pubs in clustered_pubs.items():
 			enricher = self.enrichers[enricher_name]
+
 			# for now, ignore the verbosity level, and use the one we need: 1.5
-			enricher.listReconcileCitRefMetricsBatch(base_pubs,1.5,mode)
+			et, eq = _thread_wrapper(enricher.listReconcileCitRefMetricsBatch,base_pubs,1.5,mode)
+			thread_pool.append((et,eq,enricher_name))
+		
+		# Joining all the threads
+		for et,eq,enricher_name in thread_pool:
+			et.join()
+			
+			# The result (or the exception) is in the queue
+			possible_exception = eq.get()
+			
+			# Kicking up the exception, so it is managed elsewhere
+			if isinstance(possible_exception, BaseException):
+				raise possible_exception
+			
+			# As the method enriches the results in place
+		del thread_pool
 		
 		#print('-cbegin-',file=sys.stderr)
 		#import json
@@ -312,11 +447,72 @@ class MetaEnricher(SkeletonPubEnricher):
 		for merged_pub in linear_pubs:
 			base_pubs = merged_pub.get('base_pubs',[])
 			if base_pubs:
-				if (mode & 1) != 0:
-					merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub.get('references')), base_pubs),verbosityLevel)
+				toBeMergedRefs = []
+				toBeMergedCits = []
+				for base_pub in base_pubs:
+					enricher = base_pub['enricher']
+					# Labelling the citations
+					if (mode & 2) != 0:
+						cits = base_pub.get('citations')
+						if cits:
+							for cit in cits:
+								cit['enricher'] = enricher
+							toBeMergedCits.extend(cits)
+
+					if (mode & 1) != 0:
+						refs = base_pub.get('references')
+						if refs:
+							for ref in refs:
+								ref['enricher'] = enricher
+							toBeMergedRefs.extend(refs)
 				
-				if (mode & 2) != 0:
-					merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub.get('citations')), base_pubs),verbosityLevel)
+				# Any reference?
+				if toBeMergedRefs:
+					merged_temp_references = self._mergeFoundPubsList(toBeMergedRefs)
+					
+					#merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub.get('references')), base_pubs),verbosityLevel)
+					
+					# Now, time to check and update cache
+					merged_references = []
+					refsToBeSearched = []
+					for ref in merged_temp_references:
+						cached_refs = self.pubC.getRawCachedMappingsFromPartial(ref)
+						
+						if cached_refs:
+							# Right now, we are not going to deal with conflicts at this level
+							merged_references.append(cached_refs[0])
+						else:
+							refsToBeSearched.append(ref)
+					
+					# Update cache with a new search
+					if refsToBeSearched:
+						rescuedRefs = self.cachedQueryPubIds(refsToBeSearched)
+						if rescuedRefs:
+							merged_references.extend(rescuedRefs)
+				
+				# Any citation?
+				if toBeMergedCits:
+					merged_temp_citations = self._mergeFoundPubsList(toBeMergedCits)
+					
+					#merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub.get('citations')), base_pubs),verbosityLevel)
+					
+					# Now, time to check and update cache
+					merged_citations = []
+					citsToBeSearched = []
+					for cit in merged_temp_citations:
+						cached_cits = self.pubC.getRawCachedMappingsFromPartial(cit)
+						
+						if cached_cits:
+							# Right now, we are not going to deal with conflicts at this level
+							merged_citations.append(cached_cits[0])
+						else:
+							citsToBeSearched.append(cit)
+					
+					# Update cache with a new search
+					if citsToBeSearched:
+						rescuedCits = self.cachedQueryPubIds(citsToBeSearched)
+						if rescuedCits:
+							merged_citations.extend(rescuedCits)
 				
 				# After merge, cleanup
 				for base_pub in base_pubs:
