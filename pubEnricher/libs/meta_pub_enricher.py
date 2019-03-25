@@ -86,14 +86,14 @@ class MetaEnricher(SkeletonPubEnricher):
 		for enricher_name in use_enrichers:
 			enricher_class = self.RECOGNIZED_BACKENDS_HASH.get(enricher_name)
 			if enricher_class:
-				compound_prefix = prefix + '_' + enricher_name if prefix else '_' + enricher_name
+				compound_prefix = prefix + '_' + enricher_name  if prefix else enricher_name
+				compound_prefix += '_'
 				# Each value is an instance of AbstractPubEnricher
 				enrichers[enricher_name] = enricher_class(cache,compound_prefix,config,debug)
 		
 		# And last, the meta-enricher itself
-		meta_prefix = prefix + section_name  if prefix else section_name
-		meta_prefix += '-'.join(enrichers.keys())
-		meta_prefix = '_' + meta_prefix + '_'
+		meta_prefix = prefix + '_' + section_name  if prefix else section_name
+		meta_prefix += '_' + '-'.join(enrichers.keys()) + '_'
 		
 		# And the meta-cache
 		if type(cache) is str:
