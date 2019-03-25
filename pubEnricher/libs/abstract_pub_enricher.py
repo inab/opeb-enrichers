@@ -50,7 +50,7 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 		pass
 	
 	
-	def _reconcileCitRefMetricsBatch(self,query_citations_data:List[Dict[str,Any]],query_hash,minimal:bool=False,mode:int=3) -> None:
+	def searchClusteredCitRefMetricsBatch(self,query_citations_data:List[Dict[str,Any]],query_hash,minimal:bool=False,mode:int=3) -> None:
 		# Update the cache with the new data
 		if len(query_citations_data) > 0:
 			try:
@@ -127,7 +127,7 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 		
 		minimal = verbosityLevel == -1
 		# Update the cache with the new data
-		self._reconcileCitRefMetricsBatch(query_citations_data,query_hash,minimal,mode)
+		self.searchClusteredCitRefMetricsBatch(query_citations_data,query_hash,minimal,mode)
 		
 		# If we have to return the digested stats, compute them here
 		if verbosityLevel > -1 and verbosityLevel<=0:
