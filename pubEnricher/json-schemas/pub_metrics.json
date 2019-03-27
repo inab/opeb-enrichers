@@ -105,6 +105,10 @@
 						"enricher": {
 							"title": "The source (i.e. enricher) used to get this data",
 							"type": "string"
+						},
+						"had": {
+							"title": "Did this enricher support this citation or reference evidence, or only the publication entry itself?",
+							"type": "boolean"
 						}
 					},
 					"required": ["enricher"]

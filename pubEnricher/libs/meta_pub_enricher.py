@@ -389,8 +389,66 @@ class MetaEnricher(SkeletonPubEnricher):
 			for key in filter(lambda key: key not in self.KEEP_KEYS,citref.keys()):
 				del citref[key]
 	
-	def listReconcileCitRefMetricsBatch(self,linear_pubs:List[Dict[str,Any]],verbosityLevel:float=0,mode:int=3) -> None:
+	def _mergeCitRefs(self,toBeMergedCitRefs:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+		# Any reference?
+		merged_citRefs = []
+		if toBeMergedCitRefs:
+			merged_temp_citRefs = self._mergeFoundPubsList(toBeMergedCitRefs)
+			
+			# Now, time to check and update cache
+			citRefsToBeSearched = []
+			citRefsBaseHash = {}
+			for citRef in merged_temp_citRefs:
+				cached_citRefs = self.pubC.getRawCachedMappingsFromPartial(citRef)
+				
+				if cached_citRefs:
+					# Right now, we are not going to deal with conflicts at this level
+					cached_citRef = cached_citRefs[0]
+					
+					# This is needed to track down the supporting references
+					baseSet = set()
+					for base_pub in citRef['base_pubs']:
+						baseSet.add((base_pub['enricher'],base_pub['source'],base_pub['id']))
+					
+					# Labelling the seeds of the reference
+					for base_pub in cached_citRef['base_pubs']:
+						base_pub['had'] = (base_pub['enricher'],base_pub['source'],base_pub['id']) in baseSet
+					
+					merged_citRefs.append(cached_citRef)
+				else:
+					citRefsBaseHash[citRef['id']] = citRef
+					citRefsToBeSearched.append(citRef)
+			
+			# Update cache with a new search
+			if citRefsToBeSearched:
+				rescuedCitRefs = self.cachedQueryPubIds(citRefsToBeSearched)
+				if rescuedCitRefs:
+					# This is needed to track down the supporting references
+					# There could be some false positive, as we do not track down
+					# fine
+					baseSet = set()
+					for citRef in citRefsToBeSearched:
+						for base_pub in citRef['base_pubs']:
+							baseSet.add((base_pub['enricher'],base_pub['source'],base_pub['id']))
+					
+					# Now, label those which were tracked
+					for merged_citRef in rescuedCitRefs:
+						for base_pub in merged_citRef['base_pubs']:
+							base_pub['had'] = (base_pub['enricher'],base_pub['source'],base_pub['id']) in baseSet
+					
+					merged_citRefs.extend(rescuedCitRefs)
+		
+		return merged_citRefs
+		
+	
+	def queryCitRefsBatch(self,query_citations_data:Iterator[Dict[str,Any]],minimal:bool=False,mode:int=3) -> Iterator[Dict[str,Any]]:
 		"""
+			query_citations_data: An iterator of dictionaries with at least two keys: source and id
+			minimal: Whether the list of citations and references is "minimal" (minimizing the number of queries) or not
+			mode: 1 means only references, 2 means only citations, and 3 means both
+			
+			The results from the returned iterator do not maintain the same order as the queries from the input one
+			
 			This method takes in batches of found publications and retrieves
 			citations and / or references from ids
 			hitCount: number of times cited
@@ -403,9 +461,12 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		# The publications are clustered by their original enricher
 		clustered_pubs = {}
-		for pub in linear_pubs:
+		linear_pubs = []
+		for query_pub in query_citations_data:
 			# This can happen when no result was found
-			if 'base_pubs' in pub:
+			if 'base_pubs' in query_pub:
+				pub = copy.deepcopy(query_pub)
+				linear_pubs.append(pub)
 				for base_pub in pub['base_pubs']:
 					if (base_pub.get('id') is not None and base_pub.get('source') is None) or (base_pub.get('id') is None and base_pub.get('source') is not None):
 						print('FIXME',file=sys.stderr)
@@ -419,7 +480,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		for enricher_name, base_pubs in clustered_pubs.items():
 			enricher = self.enrichers[enricher_name]
 
-			# for now, ignore the verbosity level, and use the one we need: 1.5
+			# Use the verbosity level we need: 1.5
 			et, eq = _thread_wrapper(enricher.listReconcileCitRefMetricsBatch,base_pubs,1.5,mode)
 			thread_pool.append((et,eq,enricher_name))
 		
@@ -445,110 +506,41 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		# At last, reconcile!!!!!
 		for merged_pub in linear_pubs:
-			base_pubs = merged_pub.get('base_pubs',[])
-			if base_pubs:
-				toBeMergedRefs = []
-				toBeMergedCits = []
-				for base_pub in base_pubs:
-					enricher = base_pub['enricher']
-					# Labelling the citations
-					if (mode & 2) != 0:
-						cits = base_pub.get('citations')
-						if cits:
-							for cit in cits:
-								cit['enricher'] = enricher
-							toBeMergedCits.extend(cits)
+			toBeMergedRefs = []
+			toBeMergedCits = []
+			for base_pub in base_pubs:
+				enricher = base_pub['enricher']
+				# Labelling the citations
+				if (mode & 2) != 0:
+					cits = base_pub.get('citations')
+					if cits:
+						for cit in cits:
+							cit['enricher'] = enricher
+							cit['had'] = True
+						toBeMergedCits.extend(cits)
 
-					if (mode & 1) != 0:
-						refs = base_pub.get('references')
-						if refs:
-							for ref in refs:
-								ref['enricher'] = enricher
-							toBeMergedRefs.extend(refs)
-				
-				# Any reference?
-				if toBeMergedRefs:
-					merged_temp_references = self._mergeFoundPubsList(toBeMergedRefs)
-					
-					#merged_references = self._mergeCitRef(map(lambda ref_pub: (ref_pub['enricher'],ref_pub.get('references')), base_pubs),verbosityLevel)
-					
-					# Now, time to check and update cache
-					merged_references = []
-					refsToBeSearched = []
-					for ref in merged_temp_references:
-						cached_refs = self.pubC.getRawCachedMappingsFromPartial(ref)
-						
-						if cached_refs:
-							# Right now, we are not going to deal with conflicts at this level
-							merged_references.append(cached_refs[0])
-						else:
-							refsToBeSearched.append(ref)
-					
-					# Update cache with a new search
-					if refsToBeSearched:
-						rescuedRefs = self.cachedQueryPubIds(refsToBeSearched)
-						if rescuedRefs:
-							merged_references.extend(rescuedRefs)
-				
-				# Any citation?
-				if toBeMergedCits:
-					merged_temp_citations = self._mergeFoundPubsList(toBeMergedCits)
-					
-					#merged_citations = self._mergeCitRef(map(lambda cit_pub: (cit_pub['enricher'],cit_pub.get('citations')), base_pubs),verbosityLevel)
-					
-					# Now, time to check and update cache
-					merged_citations = []
-					citsToBeSearched = []
-					for cit in merged_temp_citations:
-						cached_cits = self.pubC.getRawCachedMappingsFromPartial(cit)
-						
-						if cached_cits:
-							# Right now, we are not going to deal with conflicts at this level
-							merged_citations.append(cached_cits[0])
-						else:
-							citsToBeSearched.append(cit)
-					
-					# Update cache with a new search
-					if citsToBeSearched:
-						rescuedCits = self.cachedQueryPubIds(citsToBeSearched)
-						if rescuedCits:
-							merged_citations.extend(rescuedCits)
-				
-				# After merge, cleanup
-				for base_pub in base_pubs:
-					for key in 'references','reference_count','citations','citation_count':
-						base_pub.pop(key,None)
-			else:
 				if (mode & 1) != 0:
-					merged_references = merged_pub.get('references')
-				if (mode & 2) != 0:
-					merged_citations = merged_pub.get('citations')
+					refs = base_pub.get('references')
+					if refs:
+						for ref in refs:
+							ref['enricher'] = enricher
+							ref['had'] = True
+						toBeMergedRefs.extend(refs)
 			
-			if (mode & 1) != 0:
-				merged_pub['reference_count'] = 0  if merged_references is None else len(merged_references)
-			if (mode & 2) != 0:
-				merged_pub['citation_count'] = 0  if merged_citations is None else len(merged_citations)
+			# Any reference?
+			merged_pub['references'] = self._mergeCitRefs(toBeMergedRefs)
+			merged_pub['reference_count'] = len(merged_pub['references'])
+			# Any citation?
+			merged_pub['citations'] = self._mergeCitRefs(toBeMergedCits)
+			merged_pub['citation_count'] = len(merged_pub['citations'])
 			
-			if verbosityLevel<=0:
-				if (mode & 1) != 0:
-					merged_pub['reference_stats'] = None  if merged_references is None else self._citrefStats(merged_references)
-				if (mode & 2) != 0:
-					merged_pub['citation_stats'] = None  if merged_citations is None else self._citrefStats(merged_citations)
-			else:
-				if (mode & 1) != 0:
-					merged_pub['references'] = merged_references
-				if (mode & 2) != 0:
-					merged_pub['citations'] = merged_citations
-				
-				# Remove any key which is not the 'source', 'id', 'year' or 'enricher'
-				if verbosityLevel==1:
-					if (merged_references is not None) and ((mode & 1) != 0):
-						self._cleanCitRefs(merged_references)
-					if (merged_citations is not None) and ((mode & 2) != 0):
-						self._cleanCitRefs(merged_citations)
-				elif (merged_citations is not None) and (verbosityLevel >=2):
-					self.listReconcileCitRefMetricsBatch(merged_citations,verbosityLevel-1,mode)
-
+			# After merge, cleanup
+			for base_pub in base_pubs:
+				for key in 'references','reference_count','citations','citation_count':
+					base_pub.pop(key,None)
+			
+			# And yield the result
+			yield merged_pub
 
 # This is needed for the program itself
 DEFAULT_BACKEND = EuropePMCEnricher
