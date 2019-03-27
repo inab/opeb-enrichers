@@ -55,10 +55,15 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			# Preparing the query ids
 			raw_query_ids = []
 			
+			# In order to reduce the query string, group by source
+			clustered_partial_mappings = {}
 			for partial_mapping in partial_mappings:
-				_id = partial_mapping.get('id')
 				source_id = partial_mapping.get('source')
-				raw_query_ids.append('( EXT_ID:"'+_id+'" SRC:"'+source_id+'" )')
+				clustered_partial_mappings.setdefault(source_id,[]).append(partial_mapping.get('id'))
+			
+			for source_id, clustered_partial in clustered_partial_mappings.items():
+				ext_string = '( "'+'" or "'.join(clustered_partial)+'" )'  if len(clustered_partial) > 1  else '"'+clustered_partial[0]+'"'
+				raw_query_ids.append('( SRC:"'+source_id+'" EXT_ID:'+ext_string+' )')
 			
 			# Now, with the unknown ones, let's ask the server
 			theQuery = {
@@ -112,18 +117,34 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		# Preparing the query ids
 		raw_query_ids = []
 		
+		# Clustering the queries in order to reduce the query string
+		q_pubmed_ids = []
+		q_doi_ids = []
+		q_pmc_ids = []
 		for query_id in query_ids:
 			pubmed_id = query_id.get('pmid')
 			if pubmed_id is not None:
-				raw_query_ids.append('(EXT_ID:"'+pubmed_id+'" SRC:MED)')
+				q_pubmed_ids.append(pubmed_id)
 			
 			doi_id_norm = query_id.get('doi')
 			if doi_id_norm is not None:
-				raw_query_ids.append('DOI:"'+doi_id_norm+'"')
+				q_doi_ids.append(doi_id_norm)
 			
 			pmc_id = query_id.get('pmcid')
 			if pmc_id is not None:
-				raw_query_ids.append('PMCID:"'+pmc_id+'"')
+				q_pmc_ids.append(pmc_id)
+		
+		if q_pubmed_ids:
+			qstr_pubmed = '("'+'" or "'.join(q_pubmed_ids)+'")'  if len(q_pubmed_ids) > 1  else '"'+q_pubmed_ids[0]+'"'
+			raw_query_ids.append('( SRC:MED EXT_ID:'+qstr_pubmed+' )')
+		
+		if q_doi_ids:
+			qstr_doi =  '("'+'" or "'.join(q_doi_ids)+'")'  if len(q_doi_ids) > 1  else '"'+q_doi_ids[0]+'"'
+			raw_query_ids.append('DOI:'+qstr_doi)
+		
+		if q_pmc_ids:
+			qstr_pmc =  '("'+'" or "'.join(q_pmc_ids)+'")'  if len(q_pmc_ids) > 1  else '"'+q_pmc_ids[0]+'"'
+			raw_query_ids.append('PMCID:'+qstr_pmc)
 		
 		# Now, with the unknown ones, let's ask the server
 		mappings = []
