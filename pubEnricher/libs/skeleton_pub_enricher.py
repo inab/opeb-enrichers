@@ -176,15 +176,20 @@ class SkeletonPubEnricher(ABC):
 		# Now, with the unknown ones, let's ask the server
 		if len(query_ids) > 0:
 			try:
-				gathered_pubmed_pairs = self.queryPubIdsBatch(query_ids)
-				
-				if gathered_pubmed_pairs:
-					for mapping in gathered_pubmed_pairs:
-						# Cache management
-						self.pubC.setCachedMapping(mapping)
-						
-					# Result management
-					result_array.extend(gathered_pubmed_pairs)
+				# Needed to not overwhelm the underlying implementation
+				for start in range(0,len(query_ids),self.step_size):
+					stop = start+self.step_size
+					query_ids_slice = query_ids[start:stop]
+					
+					gathered_pubmed_pairs = self.queryPubIdsBatch(query_ids_slice)
+					
+					if gathered_pubmed_pairs:
+						for mapping in gathered_pubmed_pairs:
+							# Cache management
+							self.pubC.setCachedMapping(mapping)
+							
+						# Result management
+						result_array.extend(gathered_pubmed_pairs)
 			except Exception as anyEx:
 				print("Something unexpected happened",file=sys.stderr)
 				print(anyEx,file=sys.stderr)
