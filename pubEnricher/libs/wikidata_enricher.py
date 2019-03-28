@@ -20,7 +20,7 @@ from . import pub_common
 def _extractYear(pubdateStr):
 	if pubdateStr[0] == 't':
 		pubdate = datetime.datetime.fromtimestamp(float(pubdateStr[1:]), datetime.timezone.utc)
-	else
+	else:
 		pubdate = datetime.datetime.strptime( pubdateStr, "%Y-%m-%dT%H:%M:%SZ" )
 	return pubdate.year
 
