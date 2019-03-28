@@ -18,7 +18,10 @@ from .pub_cache import PubCache
 from . import pub_common
 
 def _extractYear(pubdateStr):
-	pubdate = datetime.datetime.strptime( pubdateStr, "%Y-%m-%dT%H:%M:%SZ" )
+	if pubdateStr[0] == 't':
+		pubdate = datetime.datetime.fromtimestamp(float(pubdateStr[1:]), datetime.timezone.utc)
+	else
+		pubdate = datetime.datetime.strptime( pubdateStr, "%Y-%m-%dT%H:%M:%SZ" )
 	return pubdate.year
 
 class WikidataEnricher(AbstractPubEnricher):
