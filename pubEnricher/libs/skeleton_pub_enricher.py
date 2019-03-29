@@ -725,6 +725,18 @@ class SkeletonPubEnricher(ABC):
 						self.pubC.setCachedMapping(p_m_c)
 						self.populateMapping(p_m_c,p_m,onlyYear)
 	
+	KEEP_REFS_KEYS=('source', 'id', 'base_pubs')
+	def _tidyCitRefRefs(self,citrefs:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+		retval = []
+		for citref in citrefs:
+			ret = citref.copy()
+			for key in filter(lambda key: key not in self.KEEP_REFS_KEYS,citref.keys()):
+				del ret[key]
+			
+			retval.append(ret)
+		
+		return retval
+	
 	def reconcilePubIds(self,entries:List[Dict[str,Any]],results_path:str=None,results_format:str=None,verbosityLevel:float=0) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
@@ -819,13 +831,13 @@ class SkeletonPubEnricher(ABC):
 						if new_pub['references'] is not None:
 							query_refs.extend(new_pub['references'])
 						# Fixing the output
-						new_pub['reference_refs'] = new_pub.pop('references')
+						new_pub['reference_refs'] = self._tidyCitRefRefs(new_pub.pop('references'))
 					if 'citations' in new_pub:
 						reconciled = True
 						if new_pub['citations'] is not None:
 							query_pubs.extend(new_pub['citations'])
 						# Fixing the output
-						new_pub['citation_refs'] = new_pub.pop('citations')
+						new_pub['citation_refs'] = self._tidyCitRefRefs(new_pub.pop('citations'))
 					
 					with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
 						json.dump(new_pub,outentry,indent=4,sort_keys=True)
