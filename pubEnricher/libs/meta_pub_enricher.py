@@ -125,38 +125,6 @@ class MetaEnricher(SkeletonPubEnricher):
 		return cls.META_SOURCE
 	
 	# Specific methods
-	def _initializeMergingEntry(self,entry:Dict[str,Any],entry_enricher:str,base_entry:Dict[str,Any]=None) -> Dict[str,Any]:
-		"""
-			This method initializes the structures used to gather the results from the different enrichers to be merged
-		"""
-		
-		merged_entry = copy.deepcopy(entry)
-		found_pubs = merged_entry.setdefault('found_pubs',[])
-		for found_pub in found_pubs:
-			found_pub['enricher'] = entry_enricher
-		
-		if base_entry is None:
-			base_entry = merged_entry
-		else:
-			base_entry['found_pubs'].extend(found_pubs)
-		
-		#
-		#print(entry,file=sys.stderr)
-		#merged_entry = copy.deepcopy(entry)
-		#merged_entry['base_entries'] = []
-		#print(merged_entry,file=sys.stderr)
-		#
-		#if entry['id'] is not None:
-		#	merged_entry['base_entries'].push(entry)
-		#	
-		#	result_tuple = (entry_enricher,entry['source'],entry['id'])
-		#	merged_entry['id'] =  [ result_tuple ]
-		#	merged_entry['source'] = self.META_SOURCE
-		#	
-		#	entry['enricher'] = entry_enricher
-		
-		return base_entry
-	
 	def _mergeFoundPubs(self,found_pubs:List[Dict[str,Any]]) -> Dict[str,Any]:
 		"""
 			This method takes an array of fetched entries, which have to be merged
@@ -166,6 +134,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		merged_pub = None
 		if found_pubs:
 			base_pubs = []
+			base_pubs_set = set()
 			initial_curie_ids = []
 			putative_ids = []
 			# Step 1: initialize features
@@ -176,7 +145,10 @@ class MetaEnricher(SkeletonPubEnricher):
 			}
 			for i_found_pub,base_found_pub in enumerate(found_pubs):
 				if base_found_pub['id'] is not None:
-					base_pubs.append({'id': base_found_pub['id'],'source': base_found_pub['source'],'enricher': base_found_pub['enricher']})
+					base_found_elem = (base_found_pub['enricher'], base_found_pub['id'], base_found_pub['source'])
+					if base_found_elem not in base_pubs_set:
+						base_pubs_set.add(base_found_elem)
+						base_pubs.append({'id': base_found_pub['id'],'source': base_found_pub['source'],'enricher': base_found_pub['enricher']})
 					for key,val in base_found_pub.items():
 						# Should we skip specific fields?
 						# This gives a chance to initialize an unknown field
@@ -210,9 +182,14 @@ class MetaEnricher(SkeletonPubEnricher):
 			# Now use the first putative id
 			merged_pub['id'] = putative_ids[0]
 			
+			#print("-dbegin-",file=sys.stderr)
+			#import json
+			#print(json.dumps(merged_pub,indent=4,sort_keys=True),file=sys.stderr)
+			#print("-dend-",file=sys.stderr)
+			
 		return merged_pub
 	
-	def _mergeFoundPubsList(self,merging_list:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+	def _mergeFoundPubsList(self,merging_list:List[Dict[str,Any]],keep_empty:bool=False) -> List[Dict[str,Any]]:
 		"""
 			This method takes an array of fetched entries, which could be merged
 			in several ways, it groups the results, and returns the list of
@@ -271,7 +248,12 @@ class MetaEnricher(SkeletonPubEnricher):
 					if notSet:
 						i2e.setdefault(eId,[]).append(merging_elem)
 						notSet = False
-			
+				
+				# Detecting empty entries to be saved
+				# as we know nothing about them (but they exist in some way on source)
+				if keep_empty and merging_elem.get('id') is None:
+					merged_results.append(merging_elem)
+				
 			# After clustering the results, it is time to merge them
 			# Duplicates should have been avoided (if possible)
 			for found_pubs in i2e.values():
@@ -279,18 +261,6 @@ class MetaEnricher(SkeletonPubEnricher):
 				merged_results.append(merged_pub)
 		
 		return merged_results
-	
-	def _transformIntoMergedPub(self,opeb_entry_pub):
-		found_pubs = opeb_entry_pub['found_pubs']
-		# We only need the reduced form for the next step
-		merged_pub = self._mergeFoundPubs(found_pubs)
-		# When no suitable entry is found, use the first one (if any)
-		opeb_entry_pub['found_pubs'] = [ merged_pub ]  if merged_pub or not found_pubs else [ found_pubs[0] ]
-		
-		#print('-begin-',file=sys.stderr)
-		#import json
-		#print(json.dumps(opeb_entry_pub,indent=4),file=sys.stderr)
-		#print('-end-',file=sys.stderr)
 	
 	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
 		# Spawning the threads
@@ -383,60 +353,71 @@ class MetaEnricher(SkeletonPubEnricher):
 					for destPlace in destPlaces:
 						partial_mappings[destPlace] = rescuedPartial
 	
-	KEEP_KEYS=('source', 'id', 'year', 'enricher')
-	def _cleanCitRefs(self,citrefs:List[Dict[str,Any]]) -> None:
-		for citref in citrefs:
-			for key in filter(lambda key: key not in self.KEEP_KEYS,citref.keys()):
-				del citref[key]
-	
 	def _mergeCitRefs(self,toBeMergedCitRefs:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		# Any reference?
 		merged_citRefs = []
 		if toBeMergedCitRefs:
-			merged_temp_citRefs = self._mergeFoundPubsList(toBeMergedCitRefs)
+			# Are there empty entries?
+			merged_citRefs.extend(filter(lambda citRef: citRef.get('id') is None, toBeMergedCitRefs))
 			
-			# Now, time to check and update cache
-			citRefsToBeSearched = []
-			citRefsBaseHash = {}
-			for citRef in merged_temp_citRefs:
-				cached_citRefs = self.pubC.getRawCachedMappingsFromPartial(citRef)
+			# Are there entries with info?
+			if len(merged_citRefs) < len(toBeMergedCitRefs):
+				merged_temp_citRefs = self._mergeFoundPubsList(list(filter(lambda citRef: citRef.get('id') is not None, toBeMergedCitRefs)),keep_empty=True)
 				
-				if cached_citRefs:
-					# Right now, we are not going to deal with conflicts at this level
-					cached_citRef = cached_citRefs[0]
+				# Now, time to check and update cache
+				citRefsToBeSearched = []
+				citRefsBaseHash = {}
+				for citRef in merged_temp_citRefs:
+					# Is it an empty entry?
+					# (should be a redundant mechanism)
+					if citRef.get('id') is None:
+						merged_citRefs.append(citRef)
+						continue
 					
-					# This is needed to track down the supporting references
-					baseSet = set()
-					for base_pub in citRef['base_pubs']:
-						baseSet.add((base_pub['enricher'],base_pub['source'],base_pub['id']))
+					cached_citRefs = self.pubC.getRawCachedMappingsFromPartial(citRef)
 					
-					# Labelling the seeds of the reference
-					for base_pub in cached_citRef['base_pubs']:
-						base_pub['had'] = (base_pub['enricher'],base_pub['source'],base_pub['id']) in baseSet
-					
-					merged_citRefs.append(cached_citRef)
-				else:
-					citRefsBaseHash[citRef['id']] = citRef
-					citRefsToBeSearched.append(citRef)
-			
-			# Update cache with a new search
-			if citRefsToBeSearched:
-				rescuedCitRefs = self.cachedQueryPubIds(citRefsToBeSearched)
-				if rescuedCitRefs:
-					# This is needed to track down the supporting references
-					# There could be some false positive, as we do not track down
-					# fine
-					baseSet = set()
-					for citRef in citRefsToBeSearched:
-						for base_pub in citRef['base_pubs']:
-							baseSet.add((base_pub['enricher'],base_pub['source'],base_pub['id']))
-					
-					# Now, label those which were tracked
-					for merged_citRef in rescuedCitRefs:
-						for base_pub in merged_citRef['base_pubs']:
+					if cached_citRefs:
+						# Right now, we are not going to deal with conflicts at this level
+						cached_citRef = cached_citRefs[0]
+						
+						# This is needed to track down the supporting references
+						baseSet = set((base_pub['enricher'],base_pub['source'],base_pub['id'])  for base_pub in citRef['base_pubs'])
+						
+						# Labelling the seeds of the reference
+						for base_pub in cached_citRef['base_pubs']:
 							base_pub['had'] = (base_pub['enricher'],base_pub['source'],base_pub['id']) in baseSet
+						
+						merged_citRefs.append(cached_citRef)
+					else:
+						citRefsBaseHash[citRef['id']] = citRef
+						citRefsToBeSearched.append(citRef)
+				
+				# Update cache with a new search
+				if citRefsToBeSearched:
+					rescuedCitRefs = self.cachedQueryPubIds(citRefsToBeSearched)
 					
-					merged_citRefs.extend(rescuedCitRefs)
+					if rescuedCitRefs:
+						# This is needed to track down the supporting references
+						# There could be some false positive, as we do not track down
+						# fine
+						print("-dbegin-",file=sys.stderr)
+						for citRef in citRefsToBeSearched:
+							if citRef.get('base_pubs') is None:
+								print("-BLAME-",file=sys.stderr)
+								print(json.dumps(citRef,indent=4),file=sys.stderr)
+								print("-/BLAME-",file=sys.stderr)
+						print(json.dumps(citRefsToBeSearched,indent=4,sort_keys=True),file=sys.stderr)
+						print("-dwhat-",file=sys.stderr)
+						print(json.dumps(rescuedCitRefs,indent=4,sort_keys=True),file=sys.stderr)
+						print("-dend-",file=sys.stderr)
+						baseSet = set((base_pub['enricher'],base_pub['source'],base_pub['id'])  for citRef in citRefsToBeSearched  for base_pub in citRef['base_pubs'])
+						
+						# Now, label those which were tracked
+						for merged_citRef in rescuedCitRefs:
+							for base_pub in merged_citRef['base_pubs']:
+								base_pub['had'] = (base_pub['enricher'],base_pub['source'],base_pub['id']) in baseSet
+						
+						merged_citRefs.extend(rescuedCitRefs)
 		
 		return merged_citRefs
 		
@@ -468,12 +449,15 @@ class MetaEnricher(SkeletonPubEnricher):
 				pub = copy.deepcopy(query_pub)
 				linear_pubs.append(pub)
 				for base_pub in pub['base_pubs']:
-					if (base_pub.get('id') is not None and base_pub.get('source') is None) or (base_pub.get('id') is None and base_pub.get('source') is not None):
+					if base_pub.get('id') is not None and base_pub.get('source') is not None:
+						clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
+					elif base_pub.get('id') is None and base_pub.get('source') is None:
+						# This one should not exist, skip it
+						pass
+					else:
 						print('FIXME',file=sys.stderr)
 						print(base_pub,file=sys.stderr)
 						sys.stderr.flush()
-					
-					clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
 		
 		# After clustering, issue the batch calls to each threaded enricher
 		thread_pool = []
@@ -498,24 +482,20 @@ class MetaEnricher(SkeletonPubEnricher):
 			# As the method enriches the results in place
 		del thread_pool
 		
-		#print('-cbegin-',file=sys.stderr)
-		#import json
-		#print(json.dumps(clustered_pubs,indent=4),file=sys.stderr)
-		#print('-cend-',file=sys.stderr)
-		#sys.exit(1)
-		
 		# At last, reconcile!!!!!
 		for merged_pub in linear_pubs:
 			toBeMergedRefs = []
 			toBeMergedCits = []
+			base_pubs = merged_pub['base_pubs']
+			
 			for base_pub in base_pubs:
-				enricher = base_pub['enricher']
+				enricher_name = base_pub['enricher']
 				# Labelling the citations
 				if (mode & 2) != 0:
 					cits = base_pub.get('citations')
 					if cits:
 						for cit in cits:
-							cit['enricher'] = enricher
+							cit['enricher'] = enricher_name
 							cit['had'] = True
 						toBeMergedCits.extend(cits)
 
@@ -523,7 +503,7 @@ class MetaEnricher(SkeletonPubEnricher):
 					refs = base_pub.get('references')
 					if refs:
 						for ref in refs:
-							ref['enricher'] = enricher
+							ref['enricher'] = enricher_name
 							ref['had'] = True
 						toBeMergedRefs.extend(refs)
 			
