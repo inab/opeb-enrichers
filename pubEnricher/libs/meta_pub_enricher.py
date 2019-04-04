@@ -400,16 +400,16 @@ class MetaEnricher(SkeletonPubEnricher):
 						# This is needed to track down the supporting references
 						# There could be some false positive, as we do not track down
 						# fine
-						print("-dbegin-",file=sys.stderr)
-						for citRef in citRefsToBeSearched:
-							if citRef.get('base_pubs') is None:
-								print("-BLAME-",file=sys.stderr)
-								print(json.dumps(citRef,indent=4),file=sys.stderr)
-								print("-/BLAME-",file=sys.stderr)
-						print(json.dumps(citRefsToBeSearched,indent=4,sort_keys=True),file=sys.stderr)
-						print("-dwhat-",file=sys.stderr)
-						print(json.dumps(rescuedCitRefs,indent=4,sort_keys=True),file=sys.stderr)
-						print("-dend-",file=sys.stderr)
+						#print("-dbegin-",file=sys.stderr)
+						#for citRef in citRefsToBeSearched:
+						#	if citRef.get('base_pubs') is None:
+						#		print("-BLAME-",file=sys.stderr)
+						#		print(json.dumps(citRef,indent=4),file=sys.stderr)
+						#		print("-/BLAME-",file=sys.stderr)
+						#print(json.dumps(citRefsToBeSearched,indent=4,sort_keys=True),file=sys.stderr)
+						#print("-dwhat-",file=sys.stderr)
+						#print(json.dumps(rescuedCitRefs,indent=4,sort_keys=True),file=sys.stderr)
+						#print("-dend-",file=sys.stderr)
 						baseSet = set((base_pub['enricher'],base_pub['source'],base_pub['id'])  for citRef in citRefsToBeSearched  for base_pub in citRef['base_pubs'])
 						
 						# Now, label those which were tracked
