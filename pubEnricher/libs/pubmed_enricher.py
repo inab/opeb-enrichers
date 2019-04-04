@@ -277,6 +277,8 @@ class PubmedEnricher(AbstractPubEnricher):
 			
 			linksets = raw_json_citations.get('linksets')
 			if linksets is not None:
+				cite_res_arr = []
+				citrefsG = []
 				for linkset in linksets:
 					ids = linkset.get('ids',[])
 					if len(ids) > 0:
@@ -290,7 +292,6 @@ class PubmedEnricher(AbstractPubEnricher):
 							'source': source_id
 						}
 						
-						citrefsG = []
 						left_linknames = search_linknames.copy()
 						
 						# The fetched results
@@ -313,7 +314,8 @@ class PubmedEnricher(AbstractPubEnricher):
 									cite_res[citrefs_key] = citrefs
 									cite_res[citrefs_count_key] = len(citrefs)
 									# To the batch of queries
-									citrefsG.extend(citrefs)
+									if not minimal:
+										citrefsG.extend(citrefs)
 						
 						# the unfetched ones with no error code
 						if len(left_linknames) > 0:
@@ -327,4 +329,13 @@ class PubmedEnricher(AbstractPubEnricher):
 						if not minimal and (len(citrefsG) > 0):
 							self.populatePubIds(citrefsG,onlyYear=True)
 						
-						yield cite_res
+						# Saving it for later processing
+						cite_res_arr.append(cite_res)
+				
+				if citrefsG:
+					# Now, issue the last batch query
+					self.populatePubIds(citrefsG,onlyYear=True)
+					
+				# And propagate the batch of results!
+				for cite_res in cite_res_arr:		
+					yield cite_res
