@@ -13,6 +13,9 @@ import http,socket
 import datetime
 import time
 
+import threading
+import gc
+
 from abc import ABC, abstractmethod
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
@@ -20,6 +23,16 @@ from typing import overload, Tuple, List, Dict, Any, Iterator
 from .pub_cache import PubCache
 
 from . import pub_common
+
+GC_THRESHOLD = 180
+def periodic_gc():
+	while True:
+		time.sleep(GC_THRESHOLD)
+		gc.collect()
+		print('----GC----',file=sys.stderr)
+
+gc_thread = threading.Thread(target=periodic_gc, name='Pub-GC', daemon=True)
+gc_thread.start()
 
 class SkeletonPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
@@ -82,7 +95,7 @@ class SkeletonPubEnricher(ABC):
 	@abstractmethod
 	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
 		pass
-		
+	
 	def cachedQueryPubIds(self,query_list:List[Dict[str,str]]) -> List[Dict[str,Any]]:
 		"""
 			Caching version of queryPubIdsBatch.
@@ -504,19 +517,36 @@ class SkeletonPubEnricher(ABC):
 					# Computing the stats
 					pub_field['reference_stats'] = None  if references is None else self._citrefStats(references)
 		elif verbosityLevel > 1:
+			populables = []
+			nextLevelPop = []
 			for pub_field in pub_list:
 				if (mode & 2) != 0:
 					citations = pub_field.get('citations')
 					if citations is not None:
-						self.populatePubIds(citations)
+						populables.extend(citations)
+						if verbosityLevel >= 2:
+							nextLevelPop.extend(citations)
 					
 				if (mode & 1) != 0:
 					references = pub_field.get('references')
 					if references is not None:
-						self.populatePubIds(references)
-				
-				if verbosityLevel >=2:
-					self.listReconcileCitRefMetricsBatch(citations,verbosityLevel-1,mode)
+						populables.extend(references)
+			#for pub_field in pub_list:
+			#	if (mode & 2) != 0:
+			#		citations = pub_field.get('citations')
+			#		if citations is not None:
+			#			self.populatePubIds(citations)
+			#		
+			#	if (mode & 1) != 0:
+			#		references = pub_field.get('references')
+			#		if references is not None:
+			#			self.populatePubIds(references)
+			
+			if populables:
+				self.populatePubIds(populables)
+			
+			if nextLevelPop:
+				self.listReconcileCitRefMetricsBatch(nextLevelPop,verbosityLevel-1,mode)
 	
 	def listReconcileRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
 		"""
@@ -880,8 +910,7 @@ class SkeletonPubEnricher(ABC):
 							
 						if 'references' in new_pub:
 							# Fixing the output
-							new_pub['reference_refs'] = new_pub['references']
-							del new_pub['references']
+							new_pub['reference_refs'] = self._tidyCitRefRefs(new_pub.pop('references'))
 						
 						with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
 							json.dump(new_pub,outentry,indent=4,sort_keys=True)
