@@ -758,12 +758,13 @@ class SkeletonPubEnricher(ABC):
 	KEEP_REFS_KEYS=('source', 'id', 'base_pubs')
 	def _tidyCitRefRefs(self,citrefs:List[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		retval = []
-		for citref in citrefs:
-			ret = citref.copy()
-			for key in filter(lambda key: key not in self.KEEP_REFS_KEYS,citref.keys()):
-				del ret[key]
-			
-			retval.append(ret)
+		if citrefs is not None:
+			for citref in citrefs:
+				ret = citref.copy()
+				for key in filter(lambda key: key not in self.KEEP_REFS_KEYS,citref.keys()):
+					del ret[key]
+				
+				retval.append(ret)
 		
 		return retval
 	
