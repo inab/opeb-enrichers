@@ -20,19 +20,41 @@ from abc import ABC, abstractmethod
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
-from .pub_cache import PubCache
+from .pub_cache import PubDBCache
 
 from . import pub_common
 
 GC_THRESHOLD = 180
-def periodic_gc():
-	while True:
-		time.sleep(GC_THRESHOLD)
-		gc.collect()
-		print('----GC----',file=sys.stderr)
+#def periodic_gc():
+#	while True:
+#		time.sleep(GC_THRESHOLD)
+#		gc.collect()
+#		print('----GC----',file=sys.stderr)
+#
+#gc_thread = threading.Thread(target=periodic_gc, name='Pub-GC', daemon=True)
+#gc_thread.start()
 
-gc_thread = threading.Thread(target=periodic_gc, name='Pub-GC', daemon=True)
-gc_thread.start()
+#import sys
+#
+#def get_size(obj, seen=None):
+#    """Recursively finds size of objects"""
+#    size = sys.getsizeof(obj)
+#    if seen is None:
+#        seen = set()
+#    obj_id = id(obj)
+#    if obj_id in seen:
+#        return 0
+#    # Important mark as seen *before* entering recursion to gracefully handle
+#    # self-referential objects
+#    seen.add(obj_id)
+#    if isinstance(obj, dict):
+#        size += sum([get_size(v, seen) for v in obj.values()])
+#        size += sum([get_size(k, seen) for k in obj.keys()])
+#    elif hasattr(obj, '__dict__'):
+#        size += get_size(obj.__dict__, seen)
+#    elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
+#        size += sum([get_size(i, seen) for i in obj])
+#    return size
 
 class SkeletonPubEnricher(ABC):
 	DEFAULT_STEP_SIZE = 50
@@ -44,22 +66,24 @@ class SkeletonPubEnricher(ABC):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+		# The section name is the symbolic name given to this class
+		section_name = self.Name()
 		if type(cache) is str:
+			cache_prefix = prefix + '_' + section_name  if prefix else section_name
+			cache_prefix += '_'
+			
 			self.cache_dir = cache
-			self.pubC = PubCache(self.cache_dir,prefix=prefix)
+			self.pubC = PubDBCache(section_name,cache_dir = self.cache_dir,prefix=cache_prefix)
 		else:
 			self.pubC = cache
 			self.cache_dir = cache.cache_dir
 		
 		# Load at least a config parser
 		self.config = config if config else configparser.ConfigParser()
-		
-		# The section name is the symbolic name given to this class
-		section_name = self.Name()
 		
 		# Adding empty sections, in order to avoid the NoSectionError exception
 		if not self.config.has_section(section_name):
@@ -77,6 +101,10 @@ class SkeletonPubEnricher(ABC):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
+		
+		# The json encoder and decoder instances
+		self.je = json.JSONEncoder(indent=4,sort_keys=True)
+		self.jd = json.JSONDecoder()
 		
 		super().__init__()
 	
@@ -679,12 +707,10 @@ class SkeletonPubEnricher(ABC):
 			new_pubs = []
 		
 		unique_pubs = {}
-		unique_comb_pubs = {}
 		for new_pub in new_pubs:
 			new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
 			if new_key not in unique_pubs:
 				unique_pubs[new_key] = new_pub
-				unique_comb_pubs[new_key] = new_pub
 		
 			
 		#import pprint
@@ -697,18 +723,19 @@ class SkeletonPubEnricher(ABC):
 		else:
 			new_ref_pubs = []
 		
+		unique_ref_pubs = {}
 		for new_ref_pub in new_ref_pubs:
-			new_comb_key = new_ref_pub.get('source','') + ':' + new_ref_pub.get('id','')
-			if new_comb_key not in unique_comb_pubs:
-				unique_comb_pubs[new_comb_key] = new_ref_pub
+			new_ref_key = new_ref_pub.get('source','') + ':' + new_ref_pub.get('id','')
+			if (new_ref_key not in unique_pubs) and (new_ref_key not in unique_ref_pubs):
+				unique_ref_pubs[new_ref_key] = new_ref_pub
 		
-		if len(unique_comb_pubs) == 0:
+		if len(unique_pubs) == 0 and len(unique_ref_pubs) == 0:
 			return None, None
 		
 		# The list to obtain the basic publication data
 		# and the list of new citations to dig in later (as soft as possible)
 		
-		return list(unique_comb_pubs.values()),list(unique_pubs.values())
+		return list(unique_ref_pubs.values()),list(unique_pubs.values())
 	
 	
 	@classmethod
@@ -768,6 +795,176 @@ class SkeletonPubEnricher(ABC):
 		
 		return retval
 	
+	def reconcilePubIdsFlatFormat(self,entries:List[Dict[str,Any]],results_path:str=None,verbosityLevel:float=0) -> List[Any]:
+		# This unlinks the input from the output
+		copied_entries = copy.deepcopy(entries)
+		
+		# The tools subdirectory
+		tools_subpath = 'tools'
+		os.makedirs(os.path.abspath(os.path.join(results_path,tools_subpath)),exist_ok=True)
+		
+		saved_tools = []
+		# Now, gather the tool publication entries
+		filename_prefix = 'pub_tool_'
+		for start in range(0,len(copied_entries),self.step_size):
+			stop = start+self.step_size
+			entries_slice = copied_entries[start:stop]
+			self.reconcilePubIdsBatch(entries_slice)
+			
+			copied_entries_slice = copy.deepcopy(entries_slice)
+			for idx, entry in enumerate(copied_entries_slice):
+				part_dest_file = os.path.join(tools_subpath,filename_prefix+str(start+idx)+'.json')
+				dest_file = os.path.join(results_path,part_dest_file)
+				saved_tools.append({
+					'@id': entry['@id'],
+					'file': part_dest_file
+				})
+				with open(dest_file,mode="w",encoding="utf-8") as outentry:
+					outentry.write(self.je.encode(entry))
+			del copied_entries_slice
+		
+		# Recording what we have already fetched (and saved)
+		saved_pubs = {}
+		saved_comb = {}
+		saved_comb_arr = []
+		
+		# The counter for the files being generated
+		pub_counter = 0
+		pubs_subpath = 'pubs'
+		query_refs = []
+		query_pubs = self.flattenPubs(copied_entries)
+		
+		depth = 0
+		
+		def _save_population_slice(population_slice,not_last=True):
+			nonlocal pub_counter
+			nonlocal pubs_subpath
+			nonlocal saved_pubs
+			nonlocal saved_comb
+			nonlocal saved_comb_arr
+			nonlocal query_pubs
+			nonlocal query_refs
+			
+			for new_pub in population_slice:
+				# Getting the name of the file
+				new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
+				
+				assert new_key not in saved_pubs
+				if new_key in saved_comb:
+					new_pub_file = saved_comb[new_key]
+				else:
+					if pub_counter % self.num_files_per_dir == 0:
+						pubs_subpath = 'pubs_'+str(pub_counter)
+						os.makedirs(os.path.abspath(os.path.join(results_path,pubs_subpath)),exist_ok=True)
+					part_new_pub_file = os.path.join(pubs_subpath,'pub_'+str(pub_counter)+'.json')
+					saved_comb_arr.append({
+						'_id': new_key,
+						'file': part_new_pub_file
+					})
+					new_pub_file = os.path.join(results_path,part_new_pub_file)
+					saved_comb[new_key] = new_pub_file
+					pub_counter += 1
+				
+				reconciled = False
+				if 'references' in new_pub:
+					reconciled = True
+					# Fixing the output
+					new_pub['reference_refs'] = self._tidyCitRefRefs(new_pub.pop('references'))
+					if not_last and (new_pub['reference_refs'] is not None):
+						query_refs.extend(new_pub['reference_refs'])
+				if not_last and ('citations' in new_pub):
+					reconciled = True
+					# Fixing the output
+					new_pub['citation_refs'] = self._tidyCitRefRefs(new_pub.pop('citations'))
+					if new_pub['citation_refs'] is not None:
+						query_pubs.extend(new_pub['citation_refs'])
+				
+				with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
+					outentry.write(self.je.encode(new_pub))
+				
+				if not_last and reconciled:
+					saved_pubs[new_key] = new_pub_file
+		
+		while (len(query_pubs) + len(query_refs)) > 0:
+			unique_to_ref_populate , unique_to_reconcile = self._getUniqueNewPubs(query_pubs,query_refs,saved_pubs,saved_comb)
+			
+			query_pubs.clear()
+			query_refs.clear()
+			if unique_to_ref_populate is None:
+				break
+			
+			not_last = depth < verbosityLevel
+			if not_last:
+				print("DEBUG: Level {} Pop {} Rec {}".format(depth,len(unique_to_ref_populate)+len(unique_to_reconcile),len(unique_to_reconcile)),file=sys.stderr)
+				sys.stderr.flush()
+				
+				# The ones to get both citations and references
+				for start in range(0,len(unique_to_reconcile),self.step_size):
+					stop = start+self.step_size
+					# This unlinks the input from the output
+					unique_to_reconcile_slice = copy.deepcopy(unique_to_reconcile[start:stop])
+					
+					# Obtaining the publication data
+					self.populatePubIds(unique_to_reconcile_slice)
+					
+					# The list of new citations AND references to dig in later (as soft as possible)
+					self.listReconcileCitRefMetricsBatch(unique_to_reconcile_slice,-1)
+					
+					# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
+					# and getting the next batch from those with references and/or citations
+					_save_population_slice(unique_to_reconcile_slice)
+					del unique_to_reconcile_slice
+			else:
+				unique_to_ref_populate.extend(unique_to_reconcile)
+				print("DEBUG: Last Pop {}".format(len(unique_to_ref_populate)),file=sys.stderr)
+			
+			# The ones to get only references
+			for start in range(0,len(unique_to_ref_populate),self.step_size):
+				stop = start+self.step_size
+				# This unlinks the input from the output
+				unique_to_ref_populate_slice = copy.deepcopy(unique_to_ref_populate[start:stop])
+				
+				# Obtaining the publication data
+				self.populatePubIds(unique_to_ref_populate_slice)
+				
+				# The list of ONLY references to dig in later (as soft as possible)
+				self.listReconcileRefMetricsBatch(unique_to_ref_populate_slice,-1)
+				
+				# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
+				# and getting the next batch from those with references and/or citations
+				_save_population_slice(unique_to_ref_populate_slice,not_last)
+				del unique_to_ref_populate_slice
+			
+			if not_last:
+				depth += 1
+			else:
+				break
+		
+		print("DEBUG: Saved {} publications".format(pub_counter),file=sys.stderr)
+		sys.stderr.flush()
+		
+#		print("DEBUG: Residuals {} {} {} {} {}".format(get_size(saved_pubs),get_size(saved_comb),get_size(saved_comb_arr),get_size(query_refs),get_size(query_pubs)),file=sys.stderr)
+		
+		# Last, save the manifest file
+		manifest_file = os.path.join(results_path,'manifest.json')
+		with open(manifest_file,mode="w",encoding="utf-8") as manifile:
+			manifile.write(self.je.encode({'@timestamp': datetime.datetime.now().isoformat(), 'tools': saved_tools, 'publications': saved_comb_arr}))
+		
+#		# Add to leaky code within python_script_being_profiled.py
+#		from pympler import muppy, summary
+#		all_objects = muppy.get_objects()
+#		sum1 = summary.summarize(all_objects)
+#
+#		# Prints out a summary of the large objects
+#		summary.print_(sum1)
+#
+#		## Get references to certain types of objects such as dataframe
+#		#dataframes = [ao for ao in all_objects if isinstance(ao, pd.DataFrame)]
+#		#
+#		#for d in dataframes:
+#		#  print d.columns.values
+#		#  print len(d)
+		
 	def reconcilePubIds(self,entries:List[Dict[str,Any]],results_path:str=None,results_format:str=None,verbosityLevel:float=0) -> List[Any]:
 		"""
 			This method reconciles, for each entry, the pubmed ids
@@ -778,153 +975,7 @@ class SkeletonPubEnricher(ABC):
 		
 		# As flat format is so different from the previous ones, use a separate codepath
 		if results_format == "flat":
-			# This unlinks the input from the output
-			copied_entries = copy.deepcopy(entries)
-			
-			# The tools subdirectory
-			tools_subpath = 'tools'
-			os.makedirs(os.path.abspath(os.path.join(results_path,tools_subpath)),exist_ok=True)
-			
-			saved_tools = []
-			# Now, gather the tool publication entries
-			filename_prefix = 'pub_tool_'
-			for start in range(0,len(copied_entries),self.step_size):
-				stop = start+self.step_size
-				entries_slice = copied_entries[start:stop]
-				self.reconcilePubIdsBatch(entries_slice)
-				
-				copied_entries_slice = copy.deepcopy(entries_slice)
-				for idx, entry in enumerate(copied_entries_slice):
-					part_dest_file = os.path.join(tools_subpath,filename_prefix+str(start+idx)+'.json')
-					dest_file = os.path.join(results_path,part_dest_file)
-					saved_tools.append({
-						'@id': entry['@id'],
-						'file': part_dest_file
-					})
-					with open(dest_file,mode="w",encoding="utf-8") as outentry:
-						json.dump(entry,outentry,indent=4,sort_keys=True)
-			
-			# Recording what we have already fetched (and saved)
-			saved_pubs = {}
-			saved_comb = {}
-			saved_comb_arr = []
-			
-			# The counter for the files being generated
-			pub_counter = 0
-			pubs_subpath = 'pubs'
-			query_refs = []
-			query_pubs = self.flattenPubs(copied_entries)
-			
-			depth = 0
-			
-			while (len(query_pubs) + len(query_refs)) > 0 and depth < verbosityLevel:
-				unique_to_populate , unique_to_reconcile = self._getUniqueNewPubs(query_pubs,query_refs,saved_pubs,saved_comb)
-				
-				query_pubs = []
-				query_refs = []
-				if unique_to_populate is None:
-					break
-				
-				print("DEBUG: Level {} Pop {} Rec {}".format(depth,len(unique_to_populate),len(unique_to_reconcile)),file=sys.stderr)
-				sys.stderr.flush()
-				
-				# Obtaining the publication data
-				self.populatePubIds(unique_to_populate)
-				self.listReconcileRefMetricsBatch(unique_to_populate,-1)
-				
-				# The list of new citations to dig in later (as soft as possible)
-				self.listReconcileCitMetricsBatch(unique_to_reconcile,-1)
-				
-				# Saving (it works because all the elements in unique_to_reconcile are in unique_to_populate)
-				# and getting the next batch from those with references and/or citations
-				for new_pub in unique_to_populate:
-					# Getting the name of the file
-					new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
-					
-					assert new_key not in saved_pubs
-					if new_key in saved_comb:
-						new_pub_file = saved_comb[new_key]
-					else:
-						if pub_counter % self.num_files_per_dir == 0:
-							pubs_subpath = 'pubs_'+str(pub_counter)
-							os.makedirs(os.path.abspath(os.path.join(results_path,pubs_subpath)),exist_ok=True)
-						part_new_pub_file = os.path.join(pubs_subpath,'pub_'+str(pub_counter)+'.json')
-						saved_comb_arr.append({
-							'_id': new_key,
-							'file': part_new_pub_file
-						})
-						new_pub_file = os.path.join(results_path,part_new_pub_file)
-						pub_counter += 1
-					
-					reconciled = False
-					if 'references' in new_pub:
-						reconciled = True
-						if new_pub['references'] is not None:
-							query_refs.extend(new_pub['references'])
-						# Fixing the output
-						new_pub['reference_refs'] = self._tidyCitRefRefs(new_pub.pop('references'))
-					if 'citations' in new_pub:
-						reconciled = True
-						if new_pub['citations'] is not None:
-							query_pubs.extend(new_pub['citations'])
-						# Fixing the output
-						new_pub['citation_refs'] = self._tidyCitRefRefs(new_pub.pop('citations'))
-					
-					with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
-						json.dump(new_pub,outentry,indent=4,sort_keys=True)
-					
-					saved_comb[new_key] = new_pub_file
-					if reconciled:
-						saved_pubs[new_key] = new_pub_file
-				
-				depth += 1
-			
-			# Last but one, the border condition
-			if (len(query_pubs) + len(query_refs)) > 0:
-				unique_to_populate , unique_to_reconcile = self._getUniqueNewPubs(query_pubs,query_refs,saved_pubs,saved_comb)
-				
-				if unique_to_populate is not None:
-					print("DEBUG: Last Pop {}".format(len(unique_to_populate)),file=sys.stderr)
-					sys.stderr.flush()
-					# Obtaining the publication data
-					self.populatePubIds(unique_to_populate)
-					self.listReconcileRefMetricsBatch(unique_to_populate,-1)
-					
-					for new_pub in unique_to_populate:
-						# Getting the name of the file
-						new_key = new_pub.get('source','') + ':' + new_pub.get('id','')
-						
-						assert new_key not in saved_pubs
-						if new_key in saved_comb:
-							new_pub_file = saved_comb[new_key]
-						else:
-							if pub_counter % self.num_files_per_dir == 0:
-								pubs_subpath = 'pubs_'+str(pub_counter)
-								os.makedirs(os.path.abspath(os.path.join(results_path,pubs_subpath)),exist_ok=True)
-							part_new_pub_file = os.path.join(pubs_subpath,'pub_'+str(pub_counter)+'.json')
-							saved_comb_arr.append({
-								'_id': new_key,
-								'file': part_new_pub_file
-							})
-							new_pub_file = os.path.join(results_path,part_new_pub_file)
-							pub_counter += 1
-							
-						if 'references' in new_pub:
-							# Fixing the output
-							new_pub['reference_refs'] = self._tidyCitRefRefs(new_pub.pop('references'))
-						
-						with open(new_pub_file,mode="w",encoding="utf-8") as outentry:
-							json.dump(new_pub,outentry,indent=4,sort_keys=True)
-						
-						saved_comb[new_key] = new_pub_file
-			
-			print("DEBUG: Saved {} publications".format(pub_counter),file=sys.stderr)
-			sys.stderr.flush()
-			
-			# Last, save the manifest file
-			manifest_file = os.path.join(results_path,'manifest.json')
-			with open(manifest_file,mode="w",encoding="utf-8") as manifile:
-				json.dump({'@timestamp': datetime.datetime.now().isoformat(), 'tools': saved_tools, 'publications': saved_comb_arr},manifile,indent=4,sort_keys=True)
+			return self.reconcilePubIdsFlatFormat(entries,results_path,verbosityLevel)
 		else:
 			#print(len(fetchedEntries))
 			#print(json.dumps(fetchedEntries,indent=4))
@@ -948,13 +999,13 @@ class SkeletonPubEnricher(ABC):
 							print(',',file=jsonOutput)
 						else:
 							printComma=True
-						json.dump(entry,jsonOutput,indent=4,sort_keys=True)
+						jsonOutput.write(self.je.encode(entry))
 				elif results_format == "multiple":
 					filename_prefix = 'entry_' if verbosityLevel == 0  else 'fullentry_'
 					for idx, entry in enumerate(entries_slice):
 						dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
 						with open(dest_file,mode="w",encoding="utf-8") as outentry:
-							json.dump(entry,outentry,indent=4,sort_keys=True)
+							outentry.write(self.je.encode(entry))
 			
 			if jsonOutput is not None:
 				print(']',file=jsonOutput)
