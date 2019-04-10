@@ -78,6 +78,16 @@
 			},
 			"required": ["source","id"]
 		},
+		"citref_minimal_meta": {
+			"allOf": [
+				{
+					"$ref": "#/definitions/citref_minimal"
+				},
+				{
+					"$ref": "#/definitions/BasePublications"
+				}
+			]
+		},
 		"citref_year": {
 			"allOf": [
 				{
@@ -115,6 +125,18 @@
 				}
 			]
 		},
+		"BasePublications": {
+			"type": "object",
+			"properties": {
+				"base_pubs": {
+					"title": "For meta-generated entries, the list of base pubs",
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/citref_basepub"
+					}
+				}
+			}
+		},
 		"Publication": {
 			"title": "A found publication entry",
 			"allOf": [
@@ -141,16 +163,12 @@
 							"items": {
 								"type": "string"
 							}
-						},
-						"base_pubs": {
-							"title": "For meta-generated entries, the list of base pubs",
-							"type": "array",
-							"items": {
-								"$ref": "#/definitions/citref_basepub"
-							}
 						}
 					},
 					"required": ["journal","title","authors"]
+				},
+				{
+					"$ref": "#/definitions/BasePublications"
 				},
 				{
 					"anyOf": [
@@ -192,14 +210,14 @@
 											"title": "The works (manuscripts, theses, etc..) referencing this publication",
 											"type": "array",
 											"items": {
-												"$ref": "#/definitions/citref_minimal"
+												"$ref": "#/definitions/citref_minimal_meta"
 											}
 										},
 										"reference_refs": {
 											"title": "The works (manuscripts, theses, etc..) referenced by this publication",
 											"type": "array",
 											"items": {
-												"$ref": "#/definitions/citref_minimal"
+												"$ref": "#/definitions/citref_minimal_meta"
 											}
 										}
 									},
