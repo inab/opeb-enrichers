@@ -14,7 +14,7 @@ from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .abstract_pub_enricher import AbstractPubEnricher
 
-from .pub_cache import PubCache
+from .pub_cache import PubDBCache
 
 from . import pub_common
 
@@ -31,7 +31,7 @@ class PubmedEnricher(AbstractPubEnricher):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
@@ -84,7 +84,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			entriesReq = request.Request(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'))
 			raw_pubmed_mappings = self.retriable_full_http_read(entriesReq,debug_url=debug_summary_url)
 			
-			pubmed_mappings = json.loads(raw_pubmed_mappings.decode('utf-8'))
+			pubmed_mappings = self.jd.decode(raw_pubmed_mappings.decode('utf-8'))
 			
 			# Avoiding to hit the server too fast
 			time.sleep(self.request_delay)
@@ -189,7 +189,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			converterReq = request.Request(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'))
 			raw_id_mappings = self.retriable_full_http_read(converterReq,debug_url = debug_converter_url)
 			
-			id_mappings = json.loads(raw_id_mappings.decode('utf-8'))
+			id_mappings = self.jd.decode(raw_id_mappings.decode('utf-8'))
 			
 			# Avoiding to hit the server too fast
 			time.sleep(self.request_delay)
@@ -270,7 +270,7 @@ class PubmedEnricher(AbstractPubEnricher):
 			elinksReq = request.Request(self.ELINKS_URL,data=elink_url_data.encode('utf-8'))
 			raw_json_citation_refs = self.retriable_full_http_read(elinksReq,debug_url=debug_elink_url)
 			
-			raw_json_citations = json.loads(raw_json_citation_refs.decode('utf-8'))
+			raw_json_citations = self.jd.decode(raw_json_citation_refs.decode('utf-8'))
 			
 			# Avoiding to hit the server too fast
 			time.sleep(self.request_delay)

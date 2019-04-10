@@ -15,7 +15,7 @@ from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .abstract_pub_enricher import AbstractPubEnricher
 
-from .pub_cache import PubCache
+from .pub_cache import PubDBCache
 
 from . import pub_common
 
@@ -27,7 +27,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
@@ -84,7 +84,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			#with open(debug_cache_filename,mode="wb") as d:
 			#	d.write(raw_json_pubs_mappings)
 			
-			pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
+			pubs_mappings = self.jd.decode(raw_json_pubs_mappings.decode('utf-8'))
 			
 			# Avoiding to hit the server too fast
 			time.sleep(self.request_delay)
@@ -165,7 +165,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 			#with open(debug_cache_filename,mode="wb") as d:
 			#	d.write(raw_json_pubs_mappings)
 			
-			pubs_mappings = json.loads(raw_json_pubs_mappings.decode('utf-8'))
+			pubs_mappings = self.jd.decode(raw_json_pubs_mappings.decode('utf-8'))
 			
 			# Avoiding to hit the server too fast
 			time.sleep(self.request_delay)
@@ -234,7 +234,7 @@ class EuropePMCEnricher(AbstractPubEnricher):
 				#with open(debug_cache_filename,mode="wb") as d:
 				#	d.write(raw_json_citrefs)
 				
-				citref_res = json.loads(raw_json_citrefs.decode('utf-8'))
+				citref_res = self.jd.decode(raw_json_citrefs.decode('utf-8'))
 				
 				# Avoiding to hit the server too fast
 				time.sleep(self.request_delay)

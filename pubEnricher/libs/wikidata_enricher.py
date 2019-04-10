@@ -13,7 +13,7 @@ from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .abstract_pub_enricher import AbstractPubEnricher
 
-from .pub_cache import PubCache
+from .pub_cache import PubDBCache
 
 from . import pub_common
 
@@ -30,7 +30,7 @@ class WikidataEnricher(AbstractPubEnricher):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):

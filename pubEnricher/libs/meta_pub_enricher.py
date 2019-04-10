@@ -14,7 +14,7 @@ import queue
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
-from .pub_cache import MetaPubCache, PubCache
+from .pub_cache import PubDBCache
 from .skeleton_pub_enricher import SkeletonPubEnricher
 from .europepmc_enricher import EuropePMCEnricher
 from .pubmed_enricher import PubmedEnricher
@@ -66,7 +66,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		...
 	
 	@overload
-	def __init__(self,cache:PubCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
 		...
 	
 	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
@@ -86,10 +86,8 @@ class MetaEnricher(SkeletonPubEnricher):
 		for enricher_name in use_enrichers:
 			enricher_class = self.RECOGNIZED_BACKENDS_HASH.get(enricher_name)
 			if enricher_class:
-				compound_prefix = prefix + '_' + enricher_name  if prefix else enricher_name
-				compound_prefix += '_'
 				# Each value is an instance of AbstractPubEnricher
-				enrichers[enricher_name] = enricher_class(cache,compound_prefix,config,debug)
+				enrichers[enricher_name] = enricher_class(cache,prefix,config,debug)
 		
 		# And last, the meta-enricher itself
 		meta_prefix = prefix + '_' + section_name  if prefix else section_name
@@ -97,7 +95,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		# And the meta-cache
 		if type(cache) is str:
-			pubC = MetaPubCache(cache,prefix=meta_prefix)
+			pubC = PubDBCache(section_name,cache_dir = cache,prefix=meta_prefix)
 		else:
 			pubC = cache
 		
