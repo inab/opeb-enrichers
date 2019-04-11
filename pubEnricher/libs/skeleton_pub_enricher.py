@@ -13,9 +13,6 @@ import http,socket
 import datetime
 import time
 
-import threading
-import gc
-
 from abc import ABC, abstractmethod
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
@@ -24,7 +21,10 @@ from .pub_cache import PubDBCache
 
 from . import pub_common
 
-GC_THRESHOLD = 180
+#import threading
+#import gc
+#
+#GC_THRESHOLD = 180
 #def periodic_gc():
 #	while True:
 #		time.sleep(GC_THRESHOLD)
@@ -34,8 +34,6 @@ GC_THRESHOLD = 180
 #gc_thread = threading.Thread(target=periodic_gc, name='Pub-GC', daemon=True)
 #gc_thread.start()
 
-#import sys
-#
 #def get_size(obj, seen=None):
 #    """Recursively finds size of objects"""
 #    size = sys.getsizeof(obj)
@@ -787,9 +785,9 @@ class SkeletonPubEnricher(ABC):
 		retval = []
 		if citrefs is not None:
 			for citref in citrefs:
-				ret = citref.copy()
-				for key in filter(lambda key: key not in self.KEEP_REFS_KEYS,citref.keys()):
-					del ret[key]
+				ret = {}
+				for key in filter(lambda key: key in self.KEEP_REFS_KEYS,citref.keys()):
+					ret[key] = citref[key]
 				
 				retval.append(ret)
 		
