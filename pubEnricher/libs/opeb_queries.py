@@ -28,7 +28,7 @@ class OpenEBenchQueries(object):
 		trimmedEntries = []
 		for entry in entries:
 			entry_pubs = []
-			for pub in entry['publications']:
+			for pub in entry.get('publications',[]):
 				if pub is not None:
 					filtered_pub = { field: pub[field] for field in filter(lambda field: field in pub, self.OPEB_PUB_FIELDS)}
 					filtered_pub['found_pubs'] = []
