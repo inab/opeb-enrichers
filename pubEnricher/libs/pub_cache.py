@@ -396,7 +396,7 @@ AND pub_id = :pub_id
 					for base_pub in base_pubs:
 						for internal_ids in self.getRawMetaSourceIds_TL([(base_pub.get('enricher'),base_pub.get('source'),base_pub.get('id'))]):
 							if internal_ids:
-								mapping_ids.extend(map(lambda _,internal_id: internal_id, internal_ids))
+								mapping_ids.extend(map(lambda internal_id: internal_id[1], internal_ids))
 			
 			# Last resort
 			if not mappings and (partial_mapping.get('pmid') or partial_mapping.get('pmcid') or partial_mapping.get('doi')):
@@ -406,7 +406,7 @@ AND pub_id = :pub_id
 						for internal_ids in self.getRawSourceIds_TL([_theId]):
 							# Only return when internal_ids is a
 							if internal_ids:
-								mapping_ids.extend(map(lambda _,internal_id: internal_id, internal_ids))
+								mapping_ids.extend(map(lambda internal_id: internal_id[1], internal_ids))
 			
 			if mapping_ids:
 				# Trying to avoid duplicates
