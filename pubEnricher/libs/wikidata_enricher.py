@@ -6,7 +6,7 @@ import time
 import re
 import configparser
 
-from SPARQLWrapper import SPARQLWrapper, JSON
+from SPARQLWrapper import SPARQLWrapper, JSON, POSTDIRECTLY
 import datetime
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
@@ -57,6 +57,7 @@ class WikidataEnricher(AbstractPubEnricher):
 	
 	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
 		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+		sparql.setRequestMethod(POSTDIRECTLY)
 		populateQuery = """
 SELECT	?internal_id
 	?internal_idLabel
@@ -91,6 +92,7 @@ WHERE {{
 		
 		if self._debug:
 			print(populateQuery,file=sys.stderr)
+			sys.stderr.flush()
 		
 		sparql.setQuery(populateQuery)
 		sparql.setReturnFormat(JSON)
@@ -189,6 +191,7 @@ WHERE {{
 		if len(union_query)>0:
 			# Now, with the unknown ones, let's ask the server
 			sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+			sparql.setRequestMethod(POSTDIRECTLY)
 			if len(union_query) == 1:
 				# No additional wrap is needed
 				queryQuery = union_query[0]
@@ -206,6 +209,7 @@ WHERE {{
 """.format(union_q)
 			if(self._debug):
 				print(queryQuery,file=sys.stderr)
+				sys.stderr.flush()
 			sparql.setQuery(queryQuery)
 			sparql.setReturnFormat(JSON)
 			results = sparql.query().convert()
@@ -255,6 +259,7 @@ WHERE {{
 			
 			if(self._debug):
 				print(populateQuery,file=sys.stderr)
+				sys.stderr.flush()
 			sparql.setQuery(populateQuery)
 			sparql.setReturnFormat(JSON)
 			results = sparql.query().convert()
@@ -317,6 +322,7 @@ WHERE {{
 			results.append(result)
 		
 		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+		sparql.setRequestMethod(POSTDIRECTLY)
 		
 		def _queryAndProcessCitRefs(theQuery,theStoreKeys,results_hash):
 			citrefs_key, citrefs_count_key = theStoreKeys
