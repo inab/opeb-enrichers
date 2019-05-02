@@ -101,6 +101,15 @@ class EuropePMCEnricher(AbstractPubEnricher):
 						pubmed_id = result.get('pmid')
 						doi_id = result.get('doi')
 						pmc_id = result.get('pmcid')
+						
+						# Let's sanitize the ids
+						if pubmed_id is not None:
+							pubmed_id = pubmed_id.strip()
+						if doi_id is not None:
+							doi_id = doi_id.strip()
+						if pmc_id is not None:
+							pmc_id = pmc_id.strip()
+						
 						authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
 						
 						partial_mapping['title'] = result.get('title')
@@ -178,6 +187,15 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					pubmed_id = result.get('pmid')
 					doi_id = result.get('doi')
 					pmc_id = result.get('pmcid')
+					
+					# Let's sanitize the ids
+					if pubmed_id is not None:
+						pubmed_id = pubmed_id.strip()
+					if doi_id is not None:
+						doi_id = doi_id.strip()
+					if pmc_id is not None:
+						pmc_id = pmc_id.strip()
+					
 					source_id = result.get('source')
 					authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
 					

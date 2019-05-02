@@ -121,13 +121,16 @@ WHERE {{
 			mapping['authors'] = authorsV['value'].split(';')  if authorsV and authorsV['value'] != '' else []
 			
 			pubmed_idV = result.get('pubmed_id')
-			mapping['pmid'] = pubmed_idV['value']  if pubmed_idV else None
+			# Let's sanitize the id
+			mapping['pmid'] = pubmed_idV['value'].strip()  if pubmed_idV else None
 			
 			doi_idV = result.get('doi_id')
-			mapping['doi'] = doi_idV['value']  if doi_idV else None
+			# Let's sanitize the id
+			mapping['doi'] = doi_idV['value'].strip()  if doi_idV else None
 			
 			pmc_idV = result.get('pmc_id')
-			mapping['pmcid'] = pub_common.normalize_pmcid(pmc_idV['value'])  if pmc_idV else None
+			# Let's sanitize the id
+			mapping['pmcid'] = pub_common.normalize_pmcid(pmc_idV['value'].strip())  if pmc_idV else None
 		
 
 	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
@@ -288,13 +291,16 @@ WHERE {{
 				mapping['authors'] = authorsV['value'].split(';')  if authorsV and authorsV['value'] != '' else []
 				
 				pubmed_idV = result.get('pubmed_id')
-				mapping['pmid'] = pubmed_idV['value']  if pubmed_idV else None
+				# Let's sanitize the id
+				mapping['pmid'] = pubmed_idV['value'].strip()  if pubmed_idV else None
 				
 				doi_idV = result.get('doi_id')
-				mapping['doi'] = doi_idV['value']  if doi_idV else None
+				# Let's sanitize the id
+				mapping['doi'] = doi_idV['value'].strip()  if doi_idV else None
 				
 				pmc_idV = result.get('pmc_id')
-				mapping['pmcid'] = pub_common.normalize_pmcid(pmc_idV['value'])  if pmc_idV else None
+				# Let's sanitize the id
+				mapping['pmcid'] = pub_common.normalize_pmcid(pmc_idV['value'].strip())  if pmc_idV else None
 				
 				mappings.append(mapping)
 		

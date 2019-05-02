@@ -134,10 +134,19 @@ class PubmedEnricher(AbstractPubEnricher):
 							if idtype is not None:
 								if idtype == 'pubmed':
 									pubmed_id = articleid.get('value')
+									# Let's sanitize the id
+									if pubmed_id is not None:
+										pubmed_id = pubmed_id.strip()
 								elif idtype == 'doi':
+									# Let's sanitize the id
+									if doi_id is not None:
+										doi_id = doi_id.strip()
 									doi_id = articleid.get('value')
 								elif idtype == 'pmc':
 									pmc_id = articleid.get('value')
+									# Let's sanitize the id
+									if pmc_id is not None:
+										pmc_id = pmc_id.strip()
 					
 					mapping['pmid'] = pubmed_id
 					mapping['doi'] = doi_id
