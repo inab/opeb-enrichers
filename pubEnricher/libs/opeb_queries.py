@@ -30,7 +30,7 @@ class OpenEBenchQueries(object):
 			entry_pubs = []
 			for pub in entry.get('publications',[]):
 				if pub is not None:
-					filtered_pub = { field: pub[field] for field in filter(lambda field: field in pub, self.OPEB_PUB_FIELDS)}
+					filtered_pub = { field: pub[field].strip()  if isinstance(pub[field],str) else pub[field]   for field in filter(lambda field: field in pub, self.OPEB_PUB_FIELDS)}
 					filtered_pub['found_pubs'] = []
 					if len(filtered_pub) > 0:
 						entry_pubs.append(filtered_pub)
