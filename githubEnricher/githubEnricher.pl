@@ -5,6 +5,11 @@ use strict;
 use warnings 'all';
 
 use FindBin;
+# We cannot use local::lib because at this point we cannot be sure
+# about having it installed
+use lib File::Spec->catdir($FindBin::Bin,'deps','lib','perl5');
+
+# Project additional libraries are available here
 use lib File::Spec->catfile($FindBin::Bin,'libs');
 
 use OpenEBenchQueries;
