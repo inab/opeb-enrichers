@@ -9,35 +9,65 @@ use JSON::MaybeXS;
 use LWP::UserAgent qw();
 use URI;
 
+use RepoMatcher::Abstract;
+
 package OpenEBenchQueries;
 
 use Scalar::Util qw(blessed);
 
+use Class::Load qw();
+
+# Constant and variable declaration
+
 use constant OPENEBENCH_SOURCE	=>	'https://openebench.bsc.es/monitor/rest/search';
-use constant GITHUB_HOST => 'github.com';
-use constant GITHUB_IO_HOST => 'github.io';
 
+my @MATCHERS = (
+	'RepoMatcher::GitHub'
+);
 
-sub new(;$$) {
+# Method bodies
+
+sub new(;$$$$$) {
 	my $self = shift;
 	my $class = ref($self) || $self;
 	
 	$self = {}  unless(ref($self));
 	
-	my($load_opeb_filename,$save_opeb_filename) = @_;
+	my($load_opeb_filename,$save_opeb_filename,$config,$ua,$p_matchers) = @_;
 	
+	Carp::croak('Expected a Config::IniFiles instance as first parameter')  unless(blessed($config) && $config->isa('Config::IniFiles'));
+	
+	$p_matchers = \@MATCHERS  unless(ref($p_matchers) eq 'ARRAY');
+	
+	# Variable initialization
 	$self->{'load_opeb_filename'} = $load_opeb_filename;
 	$self->{'save_opeb_filename'} = $save_opeb_filename;
+	$self->{'ua'} = (blessed($ua) && $ua->isa('LWP::UserAgent')) ? $ua : LWP::UserAgent->new();
+	
+	# Instances initialization
+	my @rmInstances = ();
+	foreach my $rmclazz (@{$p_matchers}) {
+		my($success,$errmsg) = Class::Load::try_load_class($rmclazz);
+		if($success) {
+			push(@rmInstances,$rmclazz->new($config,$self->{'ua'}))
+		} else {
+			Carp::croak("Unable to load class $rmclazz . Reason: $errmsg");
+		}
+	}
+	
+	$self->{'repo_matchers'} = \@rmInstances;
 	
 	return bless($self,$class);
 }
 
-sub extractGitHubIds(;$$) {
+sub extractQueryableRepoIds(;$) {
 	my $self = shift;
 	
-	my($sourceURL,$ua) = @_;
+	my($sourceURL) = @_;
 	
 	$sourceURL = OPENEBENCH_SOURCE  unless(defined($sourceURL));
+	
+	my $ua = $self->{'ua'};
 	
 	my $raw_opeb;
 	if(defined($self->{'load_opeb_filename'})) {
@@ -125,109 +155,49 @@ sub _linkExtract(\%\%) {
 	return @entry_links;
 }
 
-
-my $GITHUB_PATTERN = ':\/\/'.GITHUB_HOST.'\/([^"\'\/]+)\/([^"\'\/]+)';
-
-my $GITHUB_COMPILED_PATTERN = qr/$GITHUB_PATTERN/;
-
-sub _matchGitHub($;$);
-
-sub _matchGitHub($;$) {
-	my($uriStr,$ua) = @_;
-	
-	my $isUri = undef;
-	my $owner = undef;
-	my $repo = undef;
-	
-	# Is an URI from GitHub?
-	eval {
-		my $ghURI = URI->new($uriStr);
-		if(defined($ghURI->scheme())) {
-			$isUri=1;
-			if(index($ghURI->scheme(), 'http') == 0 || index($ghURI->scheme(), 'git') == 0) {
-				my $host = $ghURI->host();
-				my @path = $ghURI->path_segments();
-				shift(@path)  if(scalar(@path) > 0 && $path[0] eq '');
-				
-				if($host eq GITHUB_HOST) {
-					if(scalar(@path)>=2) {
-						($owner,$repo) = @path[0,1];
-						
-						# If it ends in \.git
-						$repo = substr($repo,0,-4)  if($repo =~ /.git$/);
-					}
-				} elsif(substr($host,-length(GITHUB_IO_HOST)) eq GITHUB_IO_HOST) {
-					if(scalar(@path) >= 1) {
-						$owner = substr($host,0,index($host,'.'));
-						
-						if($owner eq 'htmlpreview') {
-							($isUri,$owner,$repo) = _matchGitHub($ghURI->query(),$ua);
-							return ($isUri,$owner,$repo);
-						} elsif(length($path[0]) > 0) {
-							$repo = $path[0];
-						}
-					}
-					
-					unless(defined($repo)) {
-						# It is some kind of web
-						$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
-						
-						my $ghURIStr = $ghURI->as_string();
-						my $req = HTTP::Request->new('GET' => $ghURIStr);
-						my $response = $ua->request($req);
-						if($response->is_success()) {
-							my $page = $response->decoded_content();
-							while($page =~ /$GITHUB_COMPILED_PATTERN/g) {
-								$owner = $1;
-								$repo = $2;
-								last;
-							}
-						}
-					}
-				}
-			}
-		}
-	};
-	
-	return ($isUri,$owner,$repo);
-}
-
-
-sub parseOpenEBench(\@;$) {
+sub parseOpenEBench(\@) {
 	my $self = shift;
 	
-	my($p_entries,$ua) = @_;
+	my($p_entries) = @_;
 	
 	my @queries = ();
 	
-	$ua = LWP::UserAgent->new()  unless(blessed($ua) && $ua->isa('LWP::UserAgent'));
+	my $ua = $self->{'ua'};
 	foreach my $entry (@{$p_entries}) {
 		my @entry_links = _linkExtract(%{$entry},%Features);
 		
 		if(scalar(@entry_links) > 0) {
-			my %gitHubEntries = ();
+			my %repoEntries = ();
 			my @repos = ();
 			
 			foreach my $entry_link (@entry_links) {
-				my($isURI,$owner,$repo) = _matchGitHub($entry_link,$ua);
-				
-				if($isURI && defined($owner) && (length($owner) > 0) && defined($repo) && (length($repo) > 0)) {
-					# Due GitHub behaves, it is case insensitive
-					my $lcOwner = lc($owner);
-					my $lcRepo = lc($repo);
+				foreach my $rm (@{$self->{'repo_matchers'}}) {
+					my($isURI,$owner,$repo) = $rm->doesMatch($entry_link);
 					
-					$gitHubEntries{$lcOwner} = {}  unless(exists($gitHubEntries{$lcOwner}));
-					unless(exists($gitHubEntries{$lcOwner}{$lcRepo})) {
-						my $p_links = [];
-						$gitHubEntries{$lcOwner}{$lcRepo} = $p_links;
-						push(@repos,{
-							'owner'	=>	$owner,
-							'repo'	=>	$repo,
-							'links'	=>	$p_links
-						});
+					if($isURI && defined($owner) && (length($owner) > 0) && defined($repo) && (length($repo) > 0)) {
+						# Due GitHub behaves, it is case insensitive
+						my $lcOwner = lc($owner);
+						my $lcRepo = lc($repo);
+						my $kind = $rm->kind();
+						
+						$repoEntries{$kind} = {}  unless(exists($repoEntries{$kind}));
+						$repoEntries{$kind}{$lcOwner} = {}  unless(exists($repoEntries{$kind}{$lcOwner}));
+						unless(exists($repoEntries{$kind}{$lcOwner}{$lcRepo})) {
+							my $p_links = [];
+							$repoEntries{$kind}{$lcOwner}{$lcRepo} = $p_links;
+							push(@repos,{
+								'kind'	=>	$kind,
+								'instance'	=>	$rm,
+								'owner'	=>	$owner,
+								'repo'	=>	$repo,
+								'links'	=>	$p_links
+							});
+						}
+						
+						# Gathering
+						push(@{$repoEntries{$kind}{$lcOwner}{$lcRepo}},$entry_link);
+						last;
 					}
-					
-					push(@{$gitHubEntries{$lcOwner}{$lcRepo}},$entry_link);
 				}
 			}
 			

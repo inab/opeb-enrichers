@@ -33,6 +33,25 @@ DISTRIBUTIONS
       ExtUtils::MakeMaker 0
       File::Spec 0.80
       perl 5.006
+  Class-Load-0.25
+    pathname: E/ET/ETHER/Class-Load-0.25.tar.gz
+    provides:
+      Class::Load 0.25
+      Class::Load::PP 0.25
+    requirements:
+      Carp 0
+      Data::OptList 0.110
+      Exporter 0
+      ExtUtils::MakeMaker 0
+      Module::Implementation 0.04
+      Module::Runtime 0.012
+      Package::Stash 0.14
+      Scalar::Util 0
+      Try::Tiny 0
+      base 0
+      perl 5.006
+      strict 0
+      warnings 0
   Class-Singleton-1.5
     pathname: S/SH/SHAY/Class-Singleton-1.5.tar.gz
     provides:
@@ -65,6 +84,17 @@ DISTRIBUTIONS
     requirements:
       ExtUtils::MakeMaker 0
       Pod::Text 2.08
+  Data-OptList-0.110
+    pathname: R/RJ/RJBS/Data-OptList-0.110.tar.gz
+    provides:
+      Data::OptList 0.110
+    requirements:
+      ExtUtils::MakeMaker 0
+      List::Util 0
+      Params::Util 0
+      Sub::Install 0.921
+      strict 0
+      warnings 0
   DateTime-1.51
     pathname: D/DR/DROLSKY/DateTime-1.51.tar.gz
     provides:
@@ -1034,6 +1064,17 @@ DISTRIBUTIONS
       perl 5.008001
       strict 0
       warnings 0
+  Params-Util-1.07
+    pathname: A/AD/ADAMK/Params-Util-1.07.tar.gz
+    provides:
+      Params::Util 1.07
+    requirements:
+      ExtUtils::CBuilder 0.27
+      ExtUtils::MakeMaker 6.52
+      File::Spec 0.80
+      Scalar::Util 1.18
+      Test::More 0.42
+      perl 5.00503
   Params-Validate-1.29
     pathname: D/DR/DROLSKY/Params-Validate-1.29.tar.gz
     provides:
@@ -1161,6 +1202,17 @@ DISTRIBUTIONS
     requirements:
       ExtUtils::MakeMaker 0
       Test::More 0
+  Sub-Install-0.928
+    pathname: R/RJ/RJBS/Sub-Install-0.928.tar.gz
+    provides:
+      Sub::Install 0.928
+    requirements:
+      B 0
+      Carp 0
+      ExtUtils::MakeMaker 6.30
+      Scalar::Util 0
+      strict 0
+      warnings 0
   Sub-Quote-2.006003
     pathname: H/HA/HAARG/Sub-Quote-2.006003.tar.gz
     provides:
