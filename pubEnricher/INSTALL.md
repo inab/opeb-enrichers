@@ -22,3 +22,5 @@ pip install -r requirements.txt
 source .pyenv/bin/activate
 python pubEnricher.py -h
 ```
+
+* If you upgrades your Python installation, or you move this folder to a different location after following this instructions, you may need to remove and reinstall the virtual environment.

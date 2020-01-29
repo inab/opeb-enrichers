@@ -1,6 +1,4 @@
-# Installation instructions for githubEnricher
-
-
+# Installation instructions for OpenEBench repoEnricher
 
 * You need to have `cpan` in order to install the dependencies declared at [cpanfile](cpanfile). `cpan` is available in many Linux distributions (Ubuntu package `perl`, CentOS package `perl-CPAN`), and also at [App::Cpan](http://search.cpan.org/~andk/CPAN-2.16/) Perl package.
 
@@ -11,3 +9,4 @@ perl -MCarton -c -e '' || cpan -i Carton
 carton install -p deps --deployment
 ```
 
+* If you upgrade your installed Perl version, or you move this folder to a different location after following this instructions you may need to reinstall the dependencies. In that case, you should remove the `deps` directory and follow again the installation instructions.

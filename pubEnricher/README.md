@@ -2,6 +2,8 @@
 
 This program is written for Python 3.5 and later. The installation procedure is in [INSTALL.md](INSTALL.md).
 
+Depending on the chosen flags, it fetches from OpenEBench technical toolbox REST API (which follows [next JSON Schema](https://openebench.bsc.es/monitor/tool/tool.json), [source from repo here](https://github.com/inab/elixibilitas/blob/master/java/elixibilitas-rest/src/main/resources/META-INF/resources/tool.json)) the list of tools, along with their registered PubMed Id , DOI or PubMedCentral Id. Only tools with such information are considered.
+
 ## Usage
 Once the program is installed, and its environment activated, you can see the different options using `-h` flag:
 
