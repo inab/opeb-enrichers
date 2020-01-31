@@ -113,11 +113,8 @@ sub doesMatch($) {
 }
 
 
-use constant GITHUB_HOST => 'github.com';
 use constant GITHUB_ENDPOINT => 'https://'.GITHUB_HOST;
 use constant GITHUB_API_ENDPOINT => 'https://api.github.com/';
-
-use constant GITHUB_IO_HOST => 'github.io';
 
 use constant GITHUB_API_V_HEADER => 'application/vnd.github.v3+json';
 
@@ -181,7 +178,7 @@ sub getRepoData(\%) {
 	
 	my($fullrepo) = @_;
 	
-	my($owner,$repo) = @{$fullrepo}{('owner','repo')};
+	my($owner,$repo) = @{$fullrepo}{('workspace','repo')};
 	my $ua = $self->{'ua'};
 	
 	my $lcOwner = lc($owner);
@@ -252,6 +249,7 @@ sub getRepoData(\%) {
 			if($followProcessing) {
 				if(exists($repoData->{'clone_url'}) && defined($repoData->{'clone_url'})) {
 					$ans{'owner'} = $realOwner;
+					$ans{'workspace'} = $realOwner;
 					$ans{'repo'} = $realRepo;
 					
 					$ans{'numForks'} = $repoData->{'forks_count'};
@@ -379,15 +377,25 @@ sub getRepoData(\%) {
 					foreach my $release (@{$releasesData}) {
 						push(@versions,$release->{'tag_name'});
 						
-						if(exists($release->{'assets'}) && !exists($ans{'binary distribution'})) {
+						if(exists($release->{'assets'})) {
+							$ans{'binaries'} = []  unless(exists($ans{'binaries'}));
 							foreach my $asset (@{$release->{'assets'}}) {
+								my $p_b = {
+									'creationDate' => $asset->{'created_at'},
+									'numDownloads' => $asset->{'download_count'},
+									'binary_uri' => $asset->{'browser_download_url'},
+									'binary_isDistributable' => JSON->true,
+									'binary_isDownloadRegistered' => JSON->false,
+								};
 								# binary distribution
-								$ans{'binary_uri'} = $asset->{'browser_download_url'};
-								# binary distribution freeness
-								$ans{'binary_isDistributable'} = JSON->true;
-								# binaries download registration
-								$ans{'binary_isDownloadRegistered'} = JSON->false;
-								last;
+								unless(exists($ans{'binary_uri'})) {
+									$ans{'binary_uri'} = $asset->{'browser_download_url'};
+									# binary distribution freeness
+									$ans{'binary_isDistributable'} = JSON->true;
+									# binaries download registration
+									$ans{'binary_isDownloadRegistered'} = JSON->false;
+								}
+								push(@{$ans{'binaries'}},$p_b);
 							}
 						}
 					}
@@ -446,7 +454,7 @@ sub getRepoData(\%) {
 						my $p_contrib = $self->getGitHubUser($contributor->{'login'});
 
 						my %contribOpEB = (
-							'username'	=> $contributor->{'login'}
+							'username'	=> $contributor->{'login'},
 						);
 						
 						for my $key ( ('name','company','location','email') ) {
@@ -542,6 +550,7 @@ sub getRepoData(\%) {
 			$ans{'vcs_uri'} = $clone_uri->as_string();
 			
 			$ans{'owner'} = $owner;
+			$ans{'workspace'} = $owner;
 			$ans{'repo'} = $repo;
 		}
 	}

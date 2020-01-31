@@ -8,6 +8,8 @@ In order to use this tool with no ban, you have to obtain next information:
 
 * For GitHub, you need to [get a personal access token](https://github.com/settings/tokens) with `public_repo`, `read:user` and `user:email` privileges,  associated to a GitHub account.
 
+* For BitBucket, you need to [get an application token](https://confluence.atlassian.com/bitbucket/app-passwords-828781300.html) with account, repositories, pull requests and issues read privileges, associated to a BitBucket account.
+
 Then, you have to create a configuration file like [sample-config.ini](sample-config.ini) with the obtained personal tokens and additional information, so you can call the tool in the next way.
 
 ```bash

@@ -22,7 +22,8 @@ use Class::Load qw();
 use constant OPENEBENCH_SOURCE	=>	'https://openebench.bsc.es/monitor/rest/search';
 
 my @MATCHERS = (
-	'RepoMatcher::GitHub'
+	'RepoMatcher::GitHub',
+	'RepoMatcher::BitBucket'
 );
 
 # Method bodies
@@ -124,6 +125,9 @@ my %Features = (
 		'sourcecode'	=>	undef,
 		'binaries'	=>	undef
 	},
+	'web'	=>	{
+		'homepage'	=>	undef
+	},
 	'homepage'	=>	undef,
 	'repositories'	=>	undef
 );
@@ -172,30 +176,31 @@ sub parseOpenEBench(\@) {
 			
 			foreach my $entry_link (@entry_links) {
 				foreach my $rm (@{$self->{'repo_matchers'}}) {
-					my($isURI,$owner,$repo) = $rm->doesMatch($entry_link);
+					my($isURI,$workspace,$repo) = $rm->doesMatch($entry_link);
 					
-					if($isURI && defined($owner) && (length($owner) > 0) && defined($repo) && (length($repo) > 0)) {
+					if($isURI && defined($workspace) && (length($workspace) > 0) && defined($repo) && (length($repo) > 0)) {
 						# Due GitHub behaves, it is case insensitive
-						my $lcOwner = lc($owner);
+						my $lcWorkspace = lc($workspace);
 						my $lcRepo = lc($repo);
 						my $kind = $rm->kind();
 						
 						$repoEntries{$kind} = {}  unless(exists($repoEntries{$kind}));
-						$repoEntries{$kind}{$lcOwner} = {}  unless(exists($repoEntries{$kind}{$lcOwner}));
-						unless(exists($repoEntries{$kind}{$lcOwner}{$lcRepo})) {
+						$repoEntries{$kind}{$lcWorkspace} = {}  unless(exists($repoEntries{$kind}{$lcWorkspace}));
+						unless(exists($repoEntries{$kind}{$lcWorkspace}{$lcRepo})) {
 							my $p_links = [];
-							$repoEntries{$kind}{$lcOwner}{$lcRepo} = $p_links;
+							$repoEntries{$kind}{$lcWorkspace}{$lcRepo} = $p_links;
 							push(@repos,{
 								'kind'	=>	$kind,
 								'instance'	=>	$rm,
-								'owner'	=>	$owner,
+								'owner'	=>	$workspace,
+								'workspace'	=>	$workspace,
 								'repo'	=>	$repo,
 								'links'	=>	$p_links
 							});
 						}
 						
 						# Gathering
-						push(@{$repoEntries{$kind}{$lcOwner}{$lcRepo}},$entry_link);
+						push(@{$repoEntries{$kind}{$lcWorkspace}{$lcRepo}},$entry_link);
 						last;
 					}
 				}

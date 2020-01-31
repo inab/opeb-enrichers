@@ -32,6 +32,7 @@ use HTTP::Request qw();
 use JSON::MaybeXS;
 use LWP::UserAgent qw();
 use URI;
+use Time::HiRes qw();
 
 sub new($;$) {
 	my $self = shift;
@@ -50,6 +51,18 @@ sub new($;$) {
 	$self->{'jp'} = JSON::MaybeXS->new('convert_blessed' => 1);
 	
 	return bless($self,$class);
+}
+
+sub reqPeriod() {
+	my $self = shift;
+	
+	unless(defined($self->{'req-period'})) {
+		my $config = $self->{'config'};
+		my $numreq = $config->val($self->kind(),'numreq',$config->val('default','numreq',3600));
+		$self->{'req-period'} = 3600 / $numreq;
+	}
+	
+	return $self->{'req-period'};
 }
 
 sub kind() {
@@ -77,8 +90,10 @@ sub fetchJSON($;$$$$) {
 	my $response;
 	my $bData = undef;
 	my $j = $self->{'jp'};
+	my $period = $self->reqPeriod();
 	
 	do {
+		print STDERR "DEBUG: $uriStr\n";
 		my $bUriStr = $uriStr;
 		$uriStr = undef;
 		
@@ -87,12 +102,11 @@ sub fetchJSON($;$$$$) {
 			my $headers = $req->headers();
 			$headers->push_header(Accept => $p_acceptHeaders);
 		}
-
+		
 		$req->authorization_basic($user,$token)  if(defined($user));
 		
 		# To honor the limit of 5000 requests per hour
-		# Time::HiRes::usleep(720);
-		sleep(1);
+		my $t0 = Time::HiRes::gettimeofday();
 		$response = $ua->request($req);
 		
 		if($response->is_success()) {
@@ -128,8 +142,12 @@ sub fetchJSON($;$$$$) {
 				}
 			}
 		} else {
-			print STDERR "ERROR: kicked out $bUriStr : ".$response->status_line()."\n";
+			print STDERR "ERROR: kicked out $bUriStr : ".$response->status_line()."\n".$req->as_string()."\n".$response->as_string()."\n";
 		}
+		
+		# Should we sleep?
+		my $leap = Time::HiRes::gettimeofday() - $t0;
+		Time::HiRes::sleep($period-$leap)  if($period > $leap);
 	} while(defined($uriStr) && $numIter != 0);
 	
 	return ($response->is_success(),$bData);

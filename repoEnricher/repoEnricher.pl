@@ -6,6 +6,7 @@ use warnings 'all';
 
 use File::Spec;
 use FindBin;
+
 # We cannot use local::lib because at this point we cannot be sure
 # about having it installed
 use lib File::Spec->catdir($FindBin::Bin,'deps','lib','perl5');
@@ -141,6 +142,9 @@ if(defined($jsondir) || defined($tabfile)) {
 			foreach my $fullrepo (@{$fullans{'repos'}}) {
 				my $rm = $fullrepo->{'instance'};
 				my $p_ans = $fullrepo->{'res'} = $rm->getRepoData(\%{$fullrepo});
+				
+				# Removing this
+				delete($p_ans->{'instance'});
 				
 				if(defined($TAB)) {
 					unless($printedHeader) {
