@@ -139,6 +139,8 @@ if(defined($jsondir) || defined($tabfile)) {
 			# What we know, just now
 			my %fullans = %{$query};
 			
+			my $tool_id = exists($fullans{'@id'}) ? $fullans{'@id'} : '-';
+			
 			foreach my $fullrepo (@{$fullans{'repos'}}) {
 				my $rm = $fullrepo->{'instance'};
 				my $p_ans = $fullrepo->{'res'} = $rm->getRepoData(\%{$fullrepo});
@@ -152,13 +154,18 @@ if(defined($jsondir) || defined($tabfile)) {
 						print $TAB join("\t",map { $_->[1] } @TabKeyOrder),"\n";
 						print $TAB join("\t",map { $_->[0] } @TabKeyOrder),"\n";
 					}
+					# Synthetic
+					unless(exists($p_ans->{'tool_id'})) {
+						$p_ans->{'tool_id'} = $tool_id;
+					}
 					
 					print $TAB join("\t",map {
 						my $key = $_->[0];
 						my $retval = '';
 						if(exists($p_ans->{$key}) && defined($p_ans->{$key})) {
 							$retval = $p_ans->{$key};
-							if(ref($retval) eq 'ARRAY') {
+							my $reftype = ref($retval);
+							if($reftype eq 'ARRAY') {
 								if(scalar(@{$retval}) > 0) {
 									if(ref($retval->[0])) {
 										$retval = join(',',map { $jTAB->encode($_) } @{$retval});
@@ -166,8 +173,14 @@ if(defined($jsondir) || defined($tabfile)) {
 										$retval = join(',',@{$retval});
 									}
 								}
-							} elsif(ref($retval)) {
+							} elsif($reftype eq 'HASH') {
 								$retval = $jTAB->encode($retval);
+							} elsif($reftype ne '') {
+								# TODO: better checks
+								# use Data::Dumper;
+								# print STDERR "BUGREF\n",Dumper($retval),"\n";
+								# exit(1);
+								$retval = $$retval;
 							}
 						}
 						$retval;
@@ -213,6 +226,6 @@ if(defined($jsondir) || defined($tabfile)) {
 		print STDERR "No queries extracted from OpenEBench. Do you have internet access?\n";
 	}
 } else {
-	print STDERR "Usage: $0 [-C config file] [-D destination directory | -f destination file] [--save-opeb save_opeb_file.json] [--use-opeb use_opeb_file.json]\n";
+	print STDERR "Usage: $0 [-C config file] [-D destination directory (json files) | -f destination file (tabular file)] [--save-opeb save_opeb_file.json] [--use-opeb use_opeb_file.json]\n";
 	exit 1;
 }
