@@ -13,5 +13,17 @@ In order to use this tool with no ban, you have to obtain next information:
 Then, you have to create a configuration file like [sample-config.ini](sample-config.ini) with the obtained personal tokens and additional information, so you can call the tool in the next way.
 
 ```bash
-perl repoEnricher.pl --config myConfig.ini --jsondir=output
+perl repoEnricher.pl --config myConfig.ini --directory=output
 ```
+
+The supported parameters are:
+
+* `--save-opeb`: The fetched entries from OpenEBench are saved in the file given with this parameter.
+
+* `--use-opeb`: Instead of fetching entries from OpenEBench, use the file given with this parameter, which should follow OpenEBench JSON format.
+
+* `--config` or `-C`: Configuration file where GitHub and BitBucket credentials are available, as well as other configuration details, like maximum number of queries per hour.
+
+* `--file` or `-f`: The output of the program is going to be a tabular file with the name given with this parameter.
+
+* `--directory` or `-D`: The output of the program is going to be a directory (with the name give with this parameter), where a JSON file is created for each one of the entries. Also, a manifest file is created in the directory once the program finishes properly.
