@@ -111,6 +111,9 @@ sub extractQueryableRepoIds(;$) {
 		Carp::croak("ERROR: JSON parsing error: $@");
 	}
 	
+	# Allowing single entries
+	$retval = [ $retval ]  unless(ref($retval) eq 'ARRAY');
+	
 	return $self->parseOpenEBench($retval);
 }
 
