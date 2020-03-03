@@ -93,7 +93,6 @@ sub fetchJSON($;$$$$) {
 	my $period = $self->reqPeriod();
 	
 	do {
-		print STDERR "DEBUG: $uriStr\n";
 		my $bUriStr = $uriStr;
 		$uriStr = undef;
 		
