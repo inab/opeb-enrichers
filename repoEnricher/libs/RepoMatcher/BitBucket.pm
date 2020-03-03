@@ -226,8 +226,16 @@ sub getRepoData(\%) {
 			my $followProcessing = 1;
 			
 			if(exists($repoData->{'owner'}) && ref($repoData->{'owner'}) eq 'HASH') {
-				if(exists($repoData->{'owner'}{'nickname'})) {
-					$realOwner = $repoData->{'owner'}{'nickname'};
+				my $userKey = undef;
+				for my $key ('nickname','username') {
+					if(exists($repoData->{'owner'}{$key})) {
+						$userKey = $key;
+						last;
+					}
+				}
+				
+				if(defined($userKey)) {
+					$realOwner = $repoData->{'owner'}{$userKey};
 					$lcRealOwner = lc($realOwner);
 					
 					$p_bitbucketRepoDataCache->{$lcRealOwner} = {}  unless(exists($p_bitbucketRepoDataCache->{$lcRealOwner}));
@@ -236,11 +244,14 @@ sub getRepoData(\%) {
 						$realRepoSlug = $repoData->{'slug'};
 						$lcRealRepoSlug = lc($realRepoSlug);
 					}
-				}
-				
-				if(exists($repoData->{'owner'}{'uuid'})) {
-					$realWorkspace = $repoData->{'owner'}{'uuid'};
-					$p_bitbucketRepoDataCache->{$realWorkspace} = $p_bitbucketRepoDataCache->{$lcRealOwner}
+					
+					if(exists($repoData->{'owner'}{'uuid'})) {
+						$realWorkspace = $repoData->{'owner'}{'uuid'};
+						$p_bitbucketRepoDataCache->{$realWorkspace} = $p_bitbucketRepoDataCache->{$lcRealOwner}
+					}
+				} else {
+					use Data::Dumper;
+					print STDERR "ASSERT: Tell the developer about this entry ($workspace $repoSlug)\n\n",Dumper($repoData->{'owner'}),"\n\n";
 				}
 			}
 			
@@ -308,7 +319,7 @@ sub getRepoData(\%) {
 					$ans{'website'} = $repoData->{'links'}{'html'}{'href'};
 				}
 				
-				if(exists($repoData->{'description'}) && defined($repoData->{'description'})) {
+				if(exists($repoData->{'description'}) && defined($repoData->{'description'}) && length($repoData->{'description'}) > 0) {
 					# canonical:description
 					$ans{'desc'} = $repoData->{'description'};
 					# canonical:concept
@@ -473,7 +484,7 @@ sub getRepoData(\%) {
 					} while($tagsUri);
 				}
 				
-				if(exists($repoData->{'language'})) {
+				if(exists($repoData->{'language'}) && defined($repoData->{'language'}) && length($repoData->{'language'}) > 0) {
 					# This can be improved using external programs
 					$ans{'languages'} = [ $repoData->{'language'} ];
 					
@@ -531,7 +542,7 @@ sub getRepoData(\%) {
 								}
 								
 								if(exists($p_contrib->{'user'})) {
-									$username = $p_contrib->{'user'}{'nickname'};
+									$username = exists($p_contrib->{'user'}{'nickname'}) ? $p_contrib->{'user'}{'nickname'} : $p_contrib->{'user'}{'username'};
 									$name = $p_contrib->{'user'}{'display_name'};
 								}
 								
