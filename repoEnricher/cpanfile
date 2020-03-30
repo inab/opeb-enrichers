@@ -1,4 +1,5 @@
 requires 'LWP';
+requires 'LWP::Protocol::https';
 requires 'JSON::MaybeXS';
 requires 'URI';
 requires 'Scalar::Util';

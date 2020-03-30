@@ -875,6 +875,23 @@ DISTRIBUTIONS
       Encode 2.10
       Exporter 5.57
       ExtUtils::MakeMaker 6.30
+  IO-Socket-SSL-2.067
+    pathname: S/SU/SULLR/IO-Socket-SSL-2.067.tar.gz
+    provides:
+      IO::Socket::SSL 2.067
+      IO::Socket::SSL::Intercept 2.056
+      IO::Socket::SSL::OCSP_Cache 2.067
+      IO::Socket::SSL::OCSP_Resolver 2.067
+      IO::Socket::SSL::PublicSuffix undef
+      IO::Socket::SSL::SSL_Context 2.067
+      IO::Socket::SSL::SSL_HANDLE 2.067
+      IO::Socket::SSL::Session_Cache 2.067
+      IO::Socket::SSL::Utils 2.014
+    requirements:
+      ExtUtils::MakeMaker 0
+      Mozilla::CA 0
+      Net::SSLeay 1.46
+      Scalar::Util 0
   IO-stringy-2.111
     pathname: D/DS/DSKOLL/IO-stringy-2.111.tar.gz
     provides:
@@ -914,6 +931,18 @@ DISTRIBUTIONS
       Scalar::Util 0
       perl 5.006002
       strict 0
+  LWP-Protocol-https-6.07
+    pathname: O/OA/OALDERS/LWP-Protocol-https-6.07.tar.gz
+    provides:
+      LWP::Protocol::https 6.07
+      LWP::Protocol::https::Socket 6.07
+    requirements:
+      ExtUtils::MakeMaker 0
+      IO::Socket::SSL 1.54
+      LWP::UserAgent 6.06
+      Mozilla::CA 20110101
+      Net::HTTPS 6
+      perl 5.008001
   MRO-Compat-0.13
     pathname: H/HA/HAARG/MRO-Compat-0.13.tar.gz
     provides:
@@ -1013,6 +1042,14 @@ DISTRIBUTIONS
       perl 5.006
       strict 0
       warnings 0
+  Mozilla-CA-20180117
+    pathname: A/AB/ABH/Mozilla-CA-20180117.tar.gz
+    provides:
+      Mozilla::CA 20180117
+    requirements:
+      ExtUtils::MakeMaker 0
+      Test 0
+      perl 5.006
   Net-HTTP-6.18
     pathname: O/OA/OALDERS/Net-HTTP-6.18.tar.gz
     provides:
@@ -1032,6 +1069,15 @@ DISTRIBUTIONS
       strict 0
       vars 0
       warnings 0
+  Net-SSLeay-1.88
+    pathname: C/CH/CHRISN/Net-SSLeay-1.88.tar.gz
+    provides:
+      Net::SSLeay 1.88
+      Net::SSLeay::Handle 1.88
+    requirements:
+      ExtUtils::MakeMaker 0
+      MIME::Base64 0
+      perl 5.008001
   Package-Stash-0.38
     pathname: E/ET/ETHER/Package-Stash-0.38.tar.gz
     provides:
