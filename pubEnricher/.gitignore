@@ -1,3 +1,4 @@
 .py*env
 *[rR]esults*
 *[cC]ache*
+*.ini
