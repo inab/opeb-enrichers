@@ -25,7 +25,7 @@ if [ $# -gt 1 ]; then
 	# Loading the credentials
 	source "$config"
 	if [ -n "$OPEB_METRICS_USER" -a -n "$OPEB_METRICS_PASS" ]; then
-		jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/gh_enricher2opeb.jq "$@" | \
+		jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/repo_enricher2opeb.jq "$@" | \
 		curl -v -X "$OPEB_METHOD" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
 		"${OPEB_METRICS_BASE}" -d "@-"
 	else
