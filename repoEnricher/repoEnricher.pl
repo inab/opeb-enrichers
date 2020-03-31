@@ -197,7 +197,7 @@ if(defined($jsondir) || defined($tabfile)) {
 				});
 				my $jsonout = File::Spec->catfile($jsondir,$partialJsonout);
 				if(open(my $J,'>:encoding(UTF-8)',$jsonout)) {
-					print $J JSON::MaybeXS->new(pretty => 1,convert_blessed => 1)->encode(\%fullans);
+					print $J JSON::MaybeXS->new(pretty => 1,convert_blessed => 1, canonical => 1)->encode(\%fullans);
 					
 					close($J);
 				} else {
@@ -216,7 +216,7 @@ if(defined($jsondir) || defined($tabfile)) {
 		# Writing the manifest
 		if(defined($jsonManifestFile)) {
 			if(open(my $M,'>:encoding(UTF-8)',$jsonManifestFile)) {
-				print $M JSON::MaybeXS->new(pretty => 1)->encode(\@manifest);
+				print $M JSON::MaybeXS->new(pretty => 1, canonical => 1)->encode(\@manifest);
 				close($M);
 			} else {
 				Carp::croak("ERROR: Unable to write manifest $jsonManifestFile. Reason: $!");
