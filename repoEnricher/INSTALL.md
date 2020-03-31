@@ -16,3 +16,7 @@ carton install -p deps --deployment
 ```
 
 * If you upgrade your installed Perl version, or you move this folder to a different location after following this instructions you may need to reinstall the dependencies. In that case, you should remove the `deps` directory and follow again the installation instructions.
+
+# Metrics uploading to OpenEBench
+
+This task is done by the scripts you can find at [opeb-submitter](opeb-submitter). Please follow install and usage instructions there.
