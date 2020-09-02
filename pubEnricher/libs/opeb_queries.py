@@ -5,6 +5,7 @@ import json
 from urllib import request
 from urllib import parse
 from urllib.error import *
+import lzma
 
 from .	import pub_common
 
@@ -54,8 +55,12 @@ class OpenEBenchQueries(object):
 		"""
 		try:
 			if self.load_opeb_filename:
-				with open(self.load_opeb_filename,mode="rb") as resp:
-					raw_opeb = resp.read()
+				if self.load_opeb_filename.endswith('.xz'):
+					with lzma.open(self.load_opeb_filename,mode="rb") as resp:
+						raw_opeb = resp.read()
+				else:
+					with open(self.load_opeb_filename,mode="rb") as resp:
+						raw_opeb = resp.read()
 			else:
 				req = request.Request(sourceURL)
 				# This fixes an issue, as the API answers in several flavours
