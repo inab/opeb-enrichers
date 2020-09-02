@@ -72,7 +72,11 @@ sub extractQueryableRepoIds(;$) {
 	
 	my $raw_opeb;
 	if(defined($self->{'load_opeb_filename'})) {
-		if(open(my $OP,'<:encoding(UTF-8)',$self->{'load_opeb_filename'})) {
+		if($self->{'load_opeb_filename'} =~ /\.xz$/ && open(my $XOP,'-|:encoding(UTF-8)','unxz','-c',$self->{'load_opeb_filename'})) {
+			undef $/;
+			$raw_opeb = <$XOP>;
+			close($XOP);
+		} elsif(open(my $OP,'<:encoding(UTF-8)',$self->{'load_opeb_filename'})) {
 			undef $/;
 			$raw_opeb = <$OP>;
 			close($OP);
