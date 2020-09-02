@@ -11,6 +11,8 @@ ALAMBIQUE_METHOD=PUT
 OPEB_METRICS_BASE=https://${OPEB_HOST}/monitor/metrics/
 OPEB_ALAMBIQUE_BASE=https://${ALAMBIQUE_HOST}/monitor/alambique/
 
+set -e
+
 scriptdir="$(dirname "$0")"
 
 case "$scriptdir" in
@@ -21,6 +23,10 @@ case "$scriptdir" in
 		scriptdir="${PWD}/${scriptdir}"
 		;;
 esac
+
+eecho () {
+	echo "$@" 1>&2
+}
 
 if [ $# -gt 1 ]; then
 	config="$1"
@@ -34,7 +40,7 @@ if [ $# -gt 1 ]; then
 			# This is needed to resolve relative directories
 			cd "$resdir"
 		else
-			echo "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+" 1>&2
+			eecho "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+"
 			exit 1
 		fi
 	else
@@ -55,8 +61,8 @@ if [ $# -gt 1 ]; then
 		curl -v -X "$OPEB_METHOD" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
 		"${OPEB_METRICS_BASE}" -d "@-"
 	else
-		echo "ERROR: The config file must declare the OPEB_METRICS_USER and OPEB_METRICS_PASS variables, which are the credentials to OpenEBench" 1>&2
+		eecho "ERROR: The config file must declare the OPEB_METRICS_USER and OPEB_METRICS_PASS variables, which are the credentials to OpenEBench"
 	fi
 else
-	echo "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+" 1>&2
+	eecho "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+"
 fi
