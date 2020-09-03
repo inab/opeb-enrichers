@@ -8,6 +8,7 @@ import configparser
 
 from SPARQLWrapper import SPARQLWrapper, JSON, POSTDIRECTLY
 import datetime
+import urllib.error
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
