@@ -56,39 +56,44 @@ class WikidataEnricher(AbstractPubEnricher):
 		return cls.WIKIDATA_SOURCE
 	
 	def _retriableSPARQLQuery(self,theQuery,theDelay:float = None) -> dict:
-		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
-		sparql.setRequestMethod(POSTDIRECTLY)
-		
 		if self._debug:
-			print(theQuery,file=sys.stderr)
+			print("[{}] {}".format(datetime.datetime.now().isoformat(),theQuery),file=sys.stderr)
 			sys.stderr.flush()
 		
-		sparql.setQuery(theQuery)
-		sparql.setReturnFormat(JSON)
+		retries = 0
 		results = None
-		try:
-			results = sparql.query().convert()
-		except urllib.error.HTTPError as he:
-			sleep429 = None
-			if he.code == 429:
-				sleep429 = he.headers.get('Retry-After')
-				if sleep429 is not None:
-					sleep429 = float(sleep429)
+		while retries <= self.max_retries:
+			sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+			sparql.setRequestMethod(POSTDIRECTLY)
 			
-			
-			if sleep429 is not None:
-				time.sleep(sleep429)
-				# The retry
+			sparql.setQuery(theQuery)
+			sparql.setReturnFormat(JSON)
+			try:
 				results = sparql.query().convert()
-			else:
-				raise he
-		
-		# Avoiding to hit the server too fast
-		if theDelay is None:
-			theDelay = self.request_delay
-		time.sleep(theDelay)
-		
-		return results
+				
+				# Avoiding to hit the server too fast
+				if theDelay is None:
+					theDelay = self.request_delay
+				time.sleep(theDelay)
+				
+				return results
+			except urllib.error.HTTPError as he:
+				sleep429 = None
+				if he.code == 429:
+					sleep429 = he.headers.get('Retry-After')
+					if sleep429 is not None:
+						sleep429 = float(sleep429)
+				
+				
+				if sleep429 is not None:
+					retries += 1
+					
+					if self._debug:
+						print("\tRetry {0} for {1} seconds, due code {2}".format(retries,sleep429,e.code),file=sys.stderr)
+					
+					time.sleep(sleep429)
+				else:
+					raise he
 	
 	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
 		populateQuery = """
