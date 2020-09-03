@@ -55,9 +55,42 @@ class WikidataEnricher(AbstractPubEnricher):
 	def Name(cls) -> str:
 		return cls.WIKIDATA_SOURCE
 	
-	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
+	def _retriableSPARQLQuery(self,theQuery,theDelay:float = None) -> dict:
 		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
 		sparql.setRequestMethod(POSTDIRECTLY)
+		
+		if self._debug:
+			print(theQuery,file=sys.stderr)
+			sys.stderr.flush()
+		
+		sparql.setQuery(theQuery)
+		sparql.setReturnFormat(JSON)
+		results = None
+		try:
+			results = sparql.query().convert()
+		except urllib.error.HTTPError as he:
+			sleep429 = None
+			if he.code == 429:
+				sleep429 = he.headers.get('Retry-After')
+				if sleep429 is not None:
+					sleep429 = float(sleep429)
+			
+			
+			if sleep429 is not None:
+				time.sleep(sleep429)
+				# The retry
+				results = sparql.query().convert()
+			else:
+				raise he
+		
+		# Avoiding to hit the server too fast
+		if theDelay is None:
+			theDelay = self.request_delay
+		time.sleep(theDelay)
+		
+		return results
+	
+	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
 		populateQuery = """
 SELECT	?internal_id
 	?internal_idLabel
@@ -90,16 +123,7 @@ WHERE {{
 }} GROUP BY ?internal_id ?internal_idLabel ?pubmed_id ?doi_id ?pmc_id ?publication_date ?journal
 """.format("\n".join(("\t( <"+mapping['id']+"> )"  for mapping in mappings)))
 		
-		if self._debug:
-			print(populateQuery,file=sys.stderr)
-			sys.stderr.flush()
-		
-		sparql.setQuery(populateQuery)
-		sparql.setReturnFormat(JSON)
-		results = sparql.query().convert()
-		
-		# Avoiding to hit the server too fast
-		time.sleep(self.request_delay)
+		results = self._retriableSPARQLQuery(populateQuery)
 		
 		internal_ids_dict = { mapping['id']: mapping  for mapping in mappings }
 		for result in results["results"]["bindings"]:
@@ -193,8 +217,6 @@ WHERE {{
 		
 		if len(union_query)>0:
 			# Now, with the unknown ones, let's ask the server
-			sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
-			sparql.setRequestMethod(POSTDIRECTLY)
 			if len(union_query) == 1:
 				# No additional wrap is needed
 				queryQuery = union_query[0]
@@ -210,15 +232,8 @@ WHERE {{
 	}}
 }}
 """.format(union_q)
-			if(self._debug):
-				print(queryQuery,file=sys.stderr)
-				sys.stderr.flush()
-			sparql.setQuery(queryQuery)
-			sparql.setReturnFormat(JSON)
-			results = sparql.query().convert()
 			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
+			results = self._retriableSPARQLQuery(queryQuery)
 			
 			mapping_ids = [ result['internal_id']['value']  for result in results["results"]["bindings"] ]
 		else:
@@ -260,15 +275,7 @@ WHERE {{
 }} GROUP BY ?internal_id ?internal_idLabel ?pubmed_id ?doi_id ?pmc_id ?publication_date ?journal
 """.format("\n".join(("\t( <"+mapping_id+"> )"  for mapping_id in mapping_ids)))
 			
-			if(self._debug):
-				print(populateQuery,file=sys.stderr)
-				sys.stderr.flush()
-			sparql.setQuery(populateQuery)
-			sparql.setReturnFormat(JSON)
-			results = sparql.query().convert()
-			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
+			results = self._retriableSPARQLQuery(populateQuery)
 			
 			for result in results["results"]["bindings"]:
 				mapping = {
@@ -327,21 +334,10 @@ WHERE {{
 			
 			results.append(result)
 		
-		sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
-		sparql.setRequestMethod(POSTDIRECTLY)
-		
 		def _queryAndProcessCitRefs(theQuery,theStoreKeys,results_hash):
 			citrefs_key, citrefs_count_key = theStoreKeys
 			
-			if(self._debug):
-				print(theQuery,file=sys.stderr)
-			
-			sparql.setQuery(theQuery)
-			sparql.setReturnFormat(JSON)
-			sparql_results = sparql.query().convert()
-			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
+			sparql_results = self._retriableSPARQLQuery(theQuery)
 			
 			for res in sparql_results["results"]["bindings"]:
 				internal_id = res['internal_id']['value']
