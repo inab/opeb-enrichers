@@ -602,7 +602,7 @@ class SkeletonPubEnricher(ABC):
 	# in case of partial contents
 	def retriable_full_http_read(self,theRequest:request.Request,timeout:int=300,debug_url=None) -> bytes:
 		if self._debug and (debug_url is not None):
-			print(debug_url,file=sys.stderr)
+			print([{}] {}".format(datetime.datetime.now().isoformat(),debug_url),file=sys.stderr)
 			sys.stderr.flush()
 		retries = 0
 		while retries <= self.max_retries:
@@ -630,7 +630,7 @@ class SkeletonPubEnricher(ABC):
 					retries += 1
 					
 					if self._debug:
-						print("Retry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						print("\tRetry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
 					
 					time.sleep(2**retries)
 				else:
@@ -643,7 +643,7 @@ class SkeletonPubEnricher(ABC):
 				retries += 1
 				
 				if self._debug:
-					print("Retry {0} , due timeout".format(retries),file=sys.stderr)
+					print("\tRetry {0} , due timeout".format(retries),file=sys.stderr)
 				
 				time.sleep(2**retries)
 	
