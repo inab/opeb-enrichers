@@ -78,6 +78,15 @@ class WikidataEnricher(AbstractPubEnricher):
 				time.sleep(theDelay)
 				
 				return results
+			except SPARQLWrapper.SPARQLExceptions.EndPointInternalError as sqe:
+				# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+				retries += 1
+				
+				if self._debug:
+					print("\tRetry {0} , due endpoint internal error".format(retries),file=sys.stderr)
+					sys.stderr.flush()
+				
+				time.sleep(2 + 2**retries)
 			except urllib.error.HTTPError as he:
 				sleep429 = None
 				if he.code == 429:
