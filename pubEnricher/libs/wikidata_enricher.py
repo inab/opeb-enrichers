@@ -83,7 +83,9 @@ class WikidataEnricher(AbstractPubEnricher):
 				if he.code == 429:
 					sleep429 = he.headers.get('Retry-After')
 					if sleep429 is not None:
-						sleep429 = float(sleep429)
+						# We add half a second, as the server sends only the integer part
+						# and some corner 0 seconds cases have happened
+						sleep429 = float(sleep429) + 0.5
 				
 				
 				if sleep429 is not None:
@@ -91,6 +93,7 @@ class WikidataEnricher(AbstractPubEnricher):
 					
 					if self._debug:
 						print("\tRetry {0} for {1} seconds, due code {2}".format(retries,sleep429,he.code),file=sys.stderr)
+						sys.stderr.flush()
 					
 					time.sleep(sleep429)
 				else:
