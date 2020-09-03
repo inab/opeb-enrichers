@@ -90,7 +90,7 @@ class WikidataEnricher(AbstractPubEnricher):
 					retries += 1
 					
 					if self._debug:
-						print("\tRetry {0} for {1} seconds, due code {2}".format(retries,sleep429,e.code),file=sys.stderr)
+						print("\tRetry {0} for {1} seconds, due code {2}".format(retries,sleep429,he.code),file=sys.stderr)
 					
 					time.sleep(sleep429)
 				else:
