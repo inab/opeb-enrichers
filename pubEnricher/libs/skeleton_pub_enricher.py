@@ -631,6 +631,7 @@ class SkeletonPubEnricher(ABC):
 					
 					if self._debug:
 						print("\tRetry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
+						sys.stderr.flush()
 					
 					time.sleep(2**retries)
 				else:
@@ -638,12 +639,26 @@ class SkeletonPubEnricher(ABC):
 						print("URL with ERROR: "+debug_url+"\n",file=sys.stderr)
 						sys.stderr.flush()
 					raise e
+			except URLError as e:
+				if 'handshake operation timed out' in str(e.reason):
+					# Using also a backoff time of 2 seconds when handshake timeouts occur
+					retries += 1
+					
+					if self._debug:
+						print("\tRetry {0} , due handshake timeout".format(retries),file=sys.stderr)
+						sys.stderr.flush()
+					
+					time.sleep(2**retries)
+				else:
+					raise e
+				
 			except socket.timeout as e:
 				# Using also a backoff time of 2 seconds when read timeouts occur
 				retries += 1
 				
 				if self._debug:
-					print("\tRetry {0} , due timeout".format(retries),file=sys.stderr)
+					print("\tRetry {0} , due socket timeout".format(retries),file=sys.stderr)
+					sys.stderr.flush()
 				
 				time.sleep(2**retries)
 	
