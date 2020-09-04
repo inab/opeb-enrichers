@@ -6,7 +6,7 @@ import time
 import re
 import configparser
 
-from SPARQLWrapper import SPARQLWrapper, JSON, POSTDIRECTLY
+import SPARQLWrapper
 import datetime
 import urllib.error
 
@@ -64,11 +64,11 @@ class WikidataEnricher(AbstractPubEnricher):
 		retries = 0
 		results = None
 		while retries <= self.max_retries:
-			sparql = SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
-			sparql.setRequestMethod(POSTDIRECTLY)
+			sparql = SPARQLWrapper.SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+			sparql.setRequestMethod(SPARQLWrapper.POSTDIRECTLY)
 			
 			sparql.setQuery(theQuery)
-			sparql.setReturnFormat(JSON)
+			sparql.setReturnFormat(SPARQLWrapper.JSON)
 			try:
 				results = sparql.query().convert()
 				
