@@ -606,6 +606,8 @@ class SkeletonPubEnricher(ABC):
 			sys.stderr.flush()
 		retries = 0
 		while retries <= self.max_retries:
+			retryexc = None
+			retrymsg = None
 			try:
 				# The original bytes
 				response = b''
@@ -625,42 +627,39 @@ class SkeletonPubEnricher(ABC):
 				
 				return response
 			except HTTPError as e:
-				if e.code >= 500 and retries < self.max_retries:
-					# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-					retries += 1
-					
-					if self._debug:
-						print("\tRetry {0} , due code {1}".format(retries,e.code),file=sys.stderr)
-						sys.stderr.flush()
-					
-					time.sleep(2**retries)
-				else:
-					if debug_url is not None:
-						print("URL with ERROR: "+debug_url+"\n",file=sys.stderr)
-						sys.stderr.flush()
-					raise e
+				retryexc = e
+				if e.code >= 500:
+					retrymsg = "code {}".format(e.code)
 			except URLError as e:
+				retryexc = e
 				if 'handshake operation timed out' in str(e.reason):
-					# Using also a backoff time of 2 seconds when handshake timeouts occur
-					retries += 1
-					
-					if self._debug:
-						print("\tRetry {0} , due handshake timeout".format(retries),file=sys.stderr)
-						sys.stderr.flush()
-					
-					time.sleep(2**retries)
-				else:
-					raise e
+					retrymsg = "handshake timeout"
 				
+			except http.client.RemoteDisconnected as e:
+				retrymsg = "remote disconnect"
+				retryexc = e
 			except socket.timeout as e:
-				# Using also a backoff time of 2 seconds when read timeouts occur
-				retries += 1
-				
+				retrymsg = "socket timeout"
+				retryexc = e
+			
+			retries += 1
+			if (retrymsg is not None) and (retries <= self.max_retries):
 				if self._debug:
-					print("\tRetry {0} , due socket timeout".format(retries),file=sys.stderr)
+					print("\tRetry {0}, due {1}".format(retries,retrymsg),file=sys.stderr)
 					sys.stderr.flush()
 				
+				# Using a backoff time of 2 seconds when some recoverable error happens
 				time.sleep(2**retries)
+			else:
+				if retryexc is None:
+					retryexc = Exception("Untraced ERROR")
+				
+				if debug_url is not None:
+					print("URL with ERROR: "+debug_url+"\n",file=sys.stderr)
+					sys.stderr.flush()
+				
+				raise retryexc
+			
 	
 	def _citrefStats(self,citrefs:Iterator[Dict[str,Any]]) -> List[Dict[str,Any]]:
 		# Computing the stats
