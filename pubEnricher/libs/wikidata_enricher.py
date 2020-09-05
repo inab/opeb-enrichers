@@ -10,6 +10,7 @@ import SPARQLWrapper
 import SPARQLWrapper.SPARQLExceptions
 import datetime
 import urllib.error
+import http.client
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
@@ -65,6 +66,10 @@ class WikidataEnricher(AbstractPubEnricher):
 		retries = 0
 		results = None
 		while retries <= self.max_retries:
+			retryexc = None
+			retrymsg = None
+			retrysecs = None
+			
 			sparql = SPARQLWrapper.SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
 			sparql.setRequestMethod(SPARQLWrapper.POSTDIRECTLY)
 			
@@ -80,34 +85,43 @@ class WikidataEnricher(AbstractPubEnricher):
 				
 				return results
 			except SPARQLWrapper.SPARQLExceptions.EndPointInternalError as sqe:
+				retryexc = seq
+				retrymsg = 'endpoint internal error'
+				
 				# Using a backoff time of 2 seconds when 500 or 502 errors are hit
-				retries += 1
+				retrysecs = 2 + 2**retries
+			except http.client.IncompleteRead as ir:
+				retryexc = ir
+				retrymsg = 'incomplete read'
 				
-				if self._debug:
-					print("\tRetry {0} , due endpoint internal error".format(retries),file=sys.stderr)
-					sys.stderr.flush()
-				
-				time.sleep(2 + 2**retries)
+				# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+				retrysecs = 2 + 2**retries
 			except urllib.error.HTTPError as he:
-				sleep429 = None
+				retryexc = he
 				if he.code == 429:
-					sleep429 = he.headers.get('Retry-After')
-					if sleep429 is not None:
+					retrysecs = he.headers.get('Retry-After')
+					if retrysecs is not None:
 						# We add half a second, as the server sends only the integer part
 						# and some corner 0 seconds cases have happened
-						sleep429 = float(sleep429) + 0.5
+						retrysecs = float(retrysecs) + 0.5
+						retrymsg = "code {}".format(he.code)
+			
+			retries += 1
+			if (retrysecs is not None) and (retries <= self.max_retries):
+				if self._debug:
+					print("\tRetry {0} waits {1} seconds, due {2}".format(retries,retrysecs,retrymsg),file=sys.stderr)
+					sys.stderr.flush()
 				
+				time.sleep(retrysecs)
+			else:
+				if retryexc is None:
+					retryexc = Exception("Untraced sparql ERROR")
 				
-				if sleep429 is not None:
-					retries += 1
-					
-					if self._debug:
-						print("\tRetry {0} for {1} seconds, due code {2}".format(retries,sleep429,he.code),file=sys.stderr)
-						sys.stderr.flush()
-					
-					time.sleep(sleep429)
-				else:
-					raise he
+				if debug_url is not None:
+					print("Query with ERROR: "+theQuery+"\n",file=sys.stderr)
+					sys.stderr.flush()
+				
+				raise retryexc
 	
 	def populatePubIdsBatch(self,mappings:List[Dict[str,Any]]) -> None:
 		populateQuery = """
