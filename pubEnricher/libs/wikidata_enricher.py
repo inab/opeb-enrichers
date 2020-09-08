@@ -117,7 +117,7 @@ class WikidataEnricher(AbstractPubEnricher):
 				if retryexc is None:
 					retryexc = Exception("Untraced sparql ERROR")
 				
-				if debug_url is not None:
+				if self._debug:
 					print("Query with ERROR: "+theQuery+"\n",file=sys.stderr)
 					sys.stderr.flush()
 				
