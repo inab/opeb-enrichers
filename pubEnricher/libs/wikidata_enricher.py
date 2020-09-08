@@ -70,7 +70,7 @@ class WikidataEnricher(AbstractPubEnricher):
 			retrymsg = None
 			retrysecs = None
 			
-			sparql = SPARQLWrapper.SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT)
+			sparql = SPARQLWrapper.SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT, agent=self.useragent)
 			sparql.setRequestMethod(SPARQLWrapper.POSTDIRECTLY)
 			
 			sparql.setQuery(theQuery)

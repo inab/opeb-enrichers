@@ -34,6 +34,9 @@ class AbstractPubEnricher(SkeletonPubEnricher):
 		
 		request_delay = self.config.getfloat(section_name,'request_delay',fallback=self.DEFAULT_REQUEST_DELAY)
 		self.request_delay = request_delay
+		
+		useragent = self.config.get(section_name,'useragent',fallback='Mozilla/5.0 (X11; Linux x86_64; rv:79.0) Gecko/20100101 Firefox/79.0')
+		self.useragent = useragent
 	
 	@classmethod
 	@abstractmethod
