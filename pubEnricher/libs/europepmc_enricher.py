@@ -206,9 +206,9 @@ class EuropePMCEnricher(AbstractPubEnricher):
 						pubYear = result.get('pubYear')
 						if pubYear is not None:
 							pubYear = int(pubYear)
-							if self._debug:
-								print("DEBUG EuropePMC {} {}".format(source_id,_id),file=sys.stderr)
-								sys.stderr.flush()
+						elif self._debug:
+							print("DEBUG EuropePMC {} {}".format(source_id,_id),file=sys.stderr)
+							sys.stderr.flush()
 						mapping = {
 							'id': _id,
 							'title': result.get('title'),
