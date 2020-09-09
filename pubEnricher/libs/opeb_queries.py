@@ -5,6 +5,7 @@ import json
 from urllib import request
 from urllib import parse
 from urllib.error import *
+import traceback
 import lzma
 
 from .	import pub_common
@@ -78,13 +79,16 @@ class OpenEBenchQueries(object):
 
 		except URLError as ue:
 			print("ERROR: could not fetch {0}".format(sourceURL),file=sys.stderr)
-			import traceback
 			traceback.print_exc(file=sys.stderr)
+			sys.stderr.flush()
 			raise ue
 		except json.JSONDecodeError as jde:
-			print("ERROR: Bad-formed JSON: "+jde.msg)
+			print("ERROR: Bad-formed JSON: "+jde.msg,file=sys.stderr)
+			sys.stderr.flush()
 			raise jde
 		except Exception as anyEx:
-			print("Something unexpected happened",file=sys.stderr)
+			print("Something unexpected happened in fetchPubIds",file=sys.stderr)
 			print(anyEx,file=sys.stderr)
+			traceback.print_exc(file=sys.stderr)
+			sys.stderr.flush()
 			raise anyEx

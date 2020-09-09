@@ -230,8 +230,11 @@ class SkeletonPubEnricher(ABC):
 						# Result management
 						result_array.extend(gathered_pubmed_pairs)
 			except Exception as anyEx:
-				print("Something unexpected happened",file=sys.stderr)
+				print("Something unexpected happened in cachedQueryPubIds",file=sys.stderr)
 				print(anyEx,file=sys.stderr)
+				import traceback
+				traceback.print_exc(file=sys.stderr)
+				sys.stderr.flush()
 				raise anyEx
 		
 		return result_array
@@ -342,8 +345,11 @@ class SkeletonPubEnricher(ABC):
 					# print(json.dumps(entries,indent=4))
 				# sys.exit(1)
 			except Exception as anyEx:
-				print("Something unexpected happened",file=sys.stderr)
+				print("Something unexpected happened in reconcilePubIdsBatch",file=sys.stderr)
 				print(anyEx,file=sys.stderr)
+				import traceback
+				traceback.print_exc(file=sys.stderr)
+				sys.stderr.flush()
 				raise anyEx
 		
 		# Reconciliation and checking missing ones
