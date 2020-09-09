@@ -114,7 +114,10 @@ class EuropePMCEnricher(AbstractPubEnricher):
 						
 						partial_mapping['title'] = result.get('title')
 						partial_mapping['journal'] = result.get('journalTitle')
-						partial_mapping['year'] = int(result['pubYear'])
+						pubYear = result.get('pubYear')
+						if pubYear is not None:
+							pubYear = int(pubYear)
+						partial_mapping['year'] = pubYear
 						partial_mapping['authors'] = authors
 						partial_mapping['pmid'] = pubmed_id
 						partial_mapping['doi'] = doi_id
@@ -200,12 +203,18 @@ class EuropePMCEnricher(AbstractPubEnricher):
 					authors = list(filter(lambda author: len(author) > 0 , re.split(r"[.,]+\s*",result.get('authorString',""))))
 					
 					if pubmed_id is not None or doi_id is not None or pmc_id is not None:
+						pubYear = result.get('pubYear')
+						if pubYear is not None:
+							pubYear = int(pubYear)
+							if self._debug:
+								print("DEBUG EuropePMC {} {}".format(source_id,_id),file=sys.stderr)
+								sys.stderr.flush()
 						mapping = {
 							'id': _id,
 							'title': result.get('title'),
 							'journal': result.get('journalTitle'),
 							'source': source_id,
-							'year': int(result['pubYear']),
+							'year': pubYear,
 							'authors': authors,
 							'pmid': pubmed_id,
 							'doi': doi_id,
