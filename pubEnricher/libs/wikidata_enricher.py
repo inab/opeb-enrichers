@@ -70,6 +70,7 @@ class WikidataEnricher(AbstractPubEnricher):
 			retrymsg = None
 			retrysecs = None
 			
+			# https://www.mediawiki.org/w/index.php?title=Topic:V1zau9rqd4ritpug&topic_showPostId=v33czgrn0vmkzwkg#flow-post-v33czgrn0vmkzwkg
 			sparql = SPARQLWrapper.SPARQLWrapper(self.WIKIDATA_SPARQL_ENDPOINT, agent=self.useragent)
 			sparql.setRequestMethod(SPARQLWrapper.POSTDIRECTLY)
 			
