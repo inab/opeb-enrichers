@@ -640,6 +640,8 @@ class SkeletonPubEnricher(ABC):
 				retryexc = e
 				if 'handshake operation timed out' in str(e.reason):
 					retrymsg = "handshake timeout"
+				elif 'is unreachable' in str(e.reason):
+					retrymsg = "network is unreachable"
 				
 			except http.client.RemoteDisconnected as e:
 				retrymsg = "remote disconnect"
