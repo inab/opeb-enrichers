@@ -8,9 +8,7 @@ import configparser
 from collections import OrderedDict
 import copy
 
-#from multiprocessing import Process, Queue, Lock
-import threading
-import queue
+import multiprocessing
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
@@ -22,22 +20,46 @@ from .wikidata_enricher import WikidataEnricher
 
 from . import pub_common
 
-def _thread_target(q, method, *args):
+def _multiprocess_target(q, enricher_class, *args):
 	# We are saving either the result or any fired exception
+	enricher = None
 	try:
-		q.put(method(*args))
+		enricher = enricher_class(*args)
+		q.put(True)
 	except BaseException as e:
 		q.put(e)
-
-def _thread_wrapper(method,*args):
-	eq = queue.Queue()
-	et = threading.Thread(
-		target=_thread_target,
-		args=(eq,method,*args)
-	)
-	et.start()
 	
-	return (et,eq)
+	while enricher is not None:
+		command, params = q.get()
+		try:
+			if command == 'cachedQueryPubIds':
+				method = enricher.cachedQueryPubIds
+			elif command == 'listReconcileCitRefMetricsBatch':
+				method = enricher.listReconcileCitRefMetricsBatch
+			elif command == 'enter':
+				method = enricher.__enter__
+			elif command == 'exit':
+				method = enricher.__exit__
+			elif command == 'end':
+				method = None
+				enricher = None
+			else:
+				raise NotImplementedError("command {} is unsupported/unimplemented".format(command))
+			
+			if method is not None:
+				q.put(method(*params))
+		except BaseException as e:
+			q.put(e)
+
+def _multiprocess_wrapper(enricher_class,*args):
+	eq = multiprocessing.Queue()
+	ep = multiprocessing.Process(
+		target=_multiprocess_target,
+		args=(eq,enricher_class,*args)
+	)
+	ep.start()
+	
+	return (ep,eq)
 
 
 class MetaEnricher(SkeletonPubEnricher):
@@ -82,12 +104,14 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		use_enrichers = use_enrichers_str.split(',')  if use_enrichers_str else self.RECOGNIZED_BACKENDS_HASH.keys()
 		
-		enrichers = OrderedDict()
+		enrichers_pool = OrderedDict()
 		for enricher_name in use_enrichers:
 			enricher_class = self.RECOGNIZED_BACKENDS_HASH.get(enricher_name)
 			if enricher_class:
 				# Each value is an instance of AbstractPubEnricher
-				enrichers[enricher_name] = enricher_class(cache,prefix,config,debug)
+				#enrichers[enricher_name] = enricher_class(cache,prefix,config,debug)
+				ep, eq = _multiprocess_wrapper(enricher_class,cache,prefix,config,debug)
+				enrichers_pool[enricher_name] = (ep,eq,enricher_name)
 		
 		# And last, the meta-enricher itself
 		meta_prefix = prefix + '_' + section_name  if prefix else section_name
@@ -101,18 +125,37 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		super().__init__(pubC,meta_prefix,config,debug)
 		
-		self.enrichers = enrichers
+		self.enrichers_pool = enrichers_pool
 	
 	def __enter__(self):
 		super().__enter__()
-		for enricher in self.enrichers.values():
-			enricher.__enter__()
+		params = []
+		for eptuple in self.enrichers_pool.values():
+			eptuple[1].put(('enter',params))
+		
+		exc = []
+		for eptuple in self.enrichers_pool.values():
+			retval = eptuple[1].get()
+			
+			if isinstance(retval,BaseException):
+				exc.append(retval)
+		
+		# TODO: do not ignore other exceptions
+		if len(exc) > 0:
+			raise exc[0]
+		
 		return self
 	
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		super().__exit__(exc_type, exc_val, exc_tb)
-		for enricher in self.enrichers.values():
-			enricher.__exit__(exc_type, exc_val, exc_tb)
+		params = [exc_type, exc_val, exc_tb]
+		for eptuple in self.enrichers_pool.values():
+			eptuple[1].put(('exit',params))
+		
+		for eptuple in self.enrichers_pool.values():
+			# Ignore exceptions, as it should happen in __exit__ handlers
+			retval = eptuple[1].get()
+		
 		return self
 	
 	# Do not change this constant!!!
@@ -261,25 +304,24 @@ class MetaEnricher(SkeletonPubEnricher):
 		return merged_results
 	
 	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
-		# Spawning the threads
-		thread_pool = []
-		for enricher_name, enricher  in self.enrichers.items():
-			# We need the queue to put the returned results in some place
-			et, eq = _thread_wrapper(enricher.cachedQueryPubIds,query_ids)
-			thread_pool.append((et,eq,enricher_name))
+		# Spawning the work among the jobs
+		params = [query_ids]
+		for ep, eq, enricher_name in self.enrichers_pool.values():
+			# We need the queue to request the results
+			eptuple[1].put(('cachedQueryPubIds',params))
 		
 		# Now, we gather the work of all threaded enrichers
 		merging_list = []
-		for et, eq, enricher_name  in thread_pool:
+		exc = []
+		for ep, eq, enricher_name  in self.enrichers_pool.values():
 			# wait for it
-			et.join()
-			
 			# The result (or the exception) is in the queue
 			gathered_pairs = eq.get()
 			
 			# Kicking up the exception, so it is managed elsewhere
 			if isinstance(gathered_pairs, BaseException):
-				raise gathered_pairs
+				exc.append(gathered_pairs)
+				continue
 			
 			# Labelling the results, so we know the enricher
 			for gathered_pair in gathered_pairs:
@@ -287,7 +329,10 @@ class MetaEnricher(SkeletonPubEnricher):
 			
 			merging_list.extend(gathered_pairs)
 		
-		del thread_pool
+		# TODO: raise something telling about all the exceptions,
+		# not only the first one
+		if len(exc) > 0:
+			raise exc[0]
 		
 		# and we process it
 		merged_results = self._mergeFoundPubsList(merging_list)
@@ -441,14 +486,16 @@ class MetaEnricher(SkeletonPubEnricher):
 		# The publications are clustered by their original enricher
 		clustered_pubs = {}
 		linear_pubs = []
+		linear_id = -1
 		for query_pub in query_citations_data:
 			# This can happen when no result was found
 			if 'base_pubs' in query_pub:
 				pub = copy.deepcopy(query_pub)
 				linear_pubs.append(pub)
-				for base_pub in pub['base_pubs']:
+				linear_id += 1
+				for i_base_pub, base_pub in enumerate(pub['base_pubs']):
 					if base_pub.get('id') is not None and base_pub.get('source') is not None:
-						clustered_pubs.setdefault(base_pub['enricher'],[]).append(base_pub)
+						clustered_pubs.setdefault(base_pub['enricher'],[]).append((base_pub,linear_id,i_base_pub))
 					elif base_pub.get('id') is None and base_pub.get('source') is None:
 						# This one should not exist, skip it
 						pass
@@ -457,28 +504,39 @@ class MetaEnricher(SkeletonPubEnricher):
 						print(base_pub,file=sys.stderr)
 						sys.stderr.flush()
 		
-		# After clustering, issue the batch calls to each threaded enricher
-		thread_pool = []
-		for enricher_name, base_pubs in clustered_pubs.items():
-			enricher = self.enrichers[enricher_name]
+		# After clustering, issue the batch calls to each enricher in parallel
+		eptuples = []
+		for enricher_name, c_base_pubs in clustered_pubs.items():
+			eptuple = self.enrichers_pool[enricher_name]
 
 			# Use the verbosity level we need: 1.5
-			et, eq = _thread_wrapper(enricher.listReconcileCitRefMetricsBatch,base_pubs,1.5,mode)
-			thread_pool.append((et,eq,enricher_name))
+			eptuple[1].put(('listReconcileCitRefMetricsBatch',[list(map(lambda bp: bp[0], c_base_pubs)),1.5,mode]))
+			eptuples.append(eptuple)
 		
 		# Joining all the threads
-		for et,eq,enricher_name in thread_pool:
-			et.join()
-			
+		exc = []
+		for ep, eq, enricher_name in eptuples:
 			# The result (or the exception) is in the queue
 			possible_exception = eq.get()
 			
 			# Kicking up the exception, so it is managed elsewhere
 			if isinstance(possible_exception, BaseException):
-				raise possible_exception
+				exc.append(possible_exception)
+				continue
 			
 			# As the method enriches the results in place
-		del thread_pool
+			# reconcile
+			c_base_pubs = clustered_pubs[enricher_name]
+			for new_base_pub, bp_ids in zip(possible_exception,map(lambda bp: bp[1:],c_base_pubs)):
+				linear_id = bp_ids[0]
+				i_base_pub = bp_ids[1]
+				
+				linear_pubs[linear_id]['base_pubs'][i_base_pub] = new_base_pub
+		
+		# TODO: raise something telling about all the exceptions,
+		# not only the first one
+		if len(exc) > 0:
+			raise exc[0]
 		
 		# At last, reconcile!!!!!
 		for merged_pub in linear_pubs:

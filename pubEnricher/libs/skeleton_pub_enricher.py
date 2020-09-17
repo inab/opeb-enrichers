@@ -493,7 +493,7 @@ class SkeletonPubEnricher(ABC):
 							pub_field['reference_count'] = reference_count
 							pub_field['references'] = references
 	
-	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0,mode:int=3) -> None:
+	def listReconcileCitRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0,mode:int=3) -> List[Dict[str,Any]]:
 		"""
 			This method takes in batches of found publications and it retrieves citations from ids
 			hitCount: number of times cited
@@ -579,8 +579,11 @@ class SkeletonPubEnricher(ABC):
 			
 			if nextLevelPop:
 				self.listReconcileCitRefMetricsBatch(nextLevelPop,verbosityLevel-1,mode)
+		
+		# This is needed for multiprocess approaches
+		return pub_list
 	
-	def listReconcileRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+	def listReconcileRefMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> List[Dict[str,Any]]:
 		"""
 			This method takes in batches of found publications and retrieves citations from ids
 			hitCount: number of times cited
@@ -590,9 +593,9 @@ class SkeletonPubEnricher(ABC):
 					pubYear: year of publication
 					journalAbbreviation: Journal Abbriviations
 		"""
-		self.listReconcileCitRefMetricsBatch(pub_list,verbosityLevel,1)
+		return self.listReconcileCitRefMetricsBatch(pub_list,verbosityLevel,1)
 	
-	def listReconcileCitMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> None:
+	def listReconcileCitMetricsBatch(self,pub_list:List[Dict[str,Any]],verbosityLevel:float=0) -> List[Dict[str,Any]]:
 		"""
 			This method takes in batches of found publications and retrieves citations from ids
 			hitCount: number of times cited
@@ -602,7 +605,7 @@ class SkeletonPubEnricher(ABC):
 					pubYear: year of publication
 					journalAbbreviation: Journal Abbriviations
 		"""
-		self.listReconcileCitRefMetricsBatch(pub_list,verbosityLevel,2)
+		return self.listReconcileCitRefMetricsBatch(pub_list,verbosityLevel,2)
 
 	# This method does the different reads and retries
 	# in case of partial contents
