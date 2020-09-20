@@ -9,6 +9,7 @@ from collections import OrderedDict
 import copy
 
 import multiprocessing
+import traceback
 
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
@@ -28,7 +29,7 @@ def _multiprocess_target(qr, qs, enricher_class, *args):
 		qs.put(True)
 	except BaseException as e:
 		enricher = None
-		qs.put(e)
+		qs.put(Exception(traceback.format_exc()))
 	
 	while enricher is not None:
 		command, params = qr.get()
@@ -53,7 +54,7 @@ def _multiprocess_target(qr, qs, enricher_class, *args):
 			else:
 				qs.put(True)
 		except BaseException as e:
-			qs.put(e)
+			qs.put(Exception(traceback.format_exc()))
 
 def _multiprocess_wrapper(enricher_class,*args):
 	eqs = multiprocessing.Queue()
@@ -74,6 +75,14 @@ def _multiprocess_wrapper(enricher_class,*args):
 	
 	return (ep,eqs,eqr)
 
+class MetaEnricherException(Exception):
+	def __str__(self):
+		message, excpairs = self.args
+		
+		for enricher , trace  in expairs:
+			message += "\n\nEnricher {}. Stack trace:\n{}".format(enricher,trace)
+		
+		return message 
 
 class MetaEnricher(SkeletonPubEnricher):
 	RECOGNIZED_BACKENDS = [ EuropePMCEnricher, PubmedEnricher, WikidataEnricher ]
@@ -141,6 +150,13 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		self.enrichers_pool = enrichers_pool
 	
+	def __del__(self):
+		# Try terminating subordinated processes
+		for eptuple in self.enrichers_pool.values():
+			eptuple[0].terminate()
+		
+		self.enrichers_pool = {}
+	
 	def __enter__(self):
 		super().__enter__()
 		params = []
@@ -152,11 +168,12 @@ class MetaEnricher(SkeletonPubEnricher):
 			retval = eptuple[2].get()
 			
 			if isinstance(retval,BaseException):
-				exc.append(retval)
+				exc.append((eptuple[3],retval.args[0]))
 		
 		# TODO: do not ignore other exceptions
 		if len(exc) > 0:
-			raise exc[0]
+			self.__del__()
+			raise MetaEnricherException("__enter__ nested exception",exc)
 		
 		return self
 	
@@ -334,7 +351,7 @@ class MetaEnricher(SkeletonPubEnricher):
 			
 			# Kicking up the exception, so it is managed elsewhere
 			if isinstance(gathered_pairs, BaseException):
-				exc.append(gathered_pairs)
+				exc.append((enricher_name,gathered_pairs.args[0]))
 				continue
 			
 			# Labelling the results, so we know the enricher
@@ -346,7 +363,8 @@ class MetaEnricher(SkeletonPubEnricher):
 		# TODO: raise something telling about all the exceptions,
 		# not only the first one
 		if len(exc) > 0:
-			raise exc[0]
+			self.__del__()
+			raise MetaEnricherException('queryPubIdsBatch nested exception',exc)
 		
 		# and we process it
 		merged_results = self._mergeFoundPubsList(merging_list)
@@ -535,7 +553,7 @@ class MetaEnricher(SkeletonPubEnricher):
 			
 			# Kicking up the exception, so it is managed elsewhere
 			if isinstance(possible_exception, BaseException):
-				exc.append(possible_exception)
+				exc.append((enricher_name,possible_exception.args[0]))
 				continue
 			
 			# As the method enriches the results in place
@@ -550,7 +568,8 @@ class MetaEnricher(SkeletonPubEnricher):
 		# TODO: raise something telling about all the exceptions,
 		# not only the first one
 		if len(exc) > 0:
-			raise exc[0]
+			self.__del__()
+			raise MetaEnricherException('queryCitRefsBatch nested exception',exc)
 		
 		# At last, reconcile!!!!!
 		for merged_pub in linear_pubs:
