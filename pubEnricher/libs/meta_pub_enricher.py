@@ -20,17 +20,18 @@ from .wikidata_enricher import WikidataEnricher
 
 from . import pub_common
 
-def _multiprocess_target(q, enricher_class, *args):
+def _multiprocess_target(qr, qs, enricher_class, *args):
 	# We are saving either the result or any fired exception
 	enricher = None
 	try:
 		enricher = enricher_class(*args)
-		q.put(True)
+		qs.put(True)
 	except BaseException as e:
-		q.put(e)
+		enricher = None
+		qs.put(e)
 	
 	while enricher is not None:
-		command, params = q.get()
+		command, params = qr.get()
 		try:
 			if command == 'cachedQueryPubIds':
 				method = enricher.cachedQueryPubIds
@@ -47,19 +48,31 @@ def _multiprocess_target(q, enricher_class, *args):
 				raise NotImplementedError("command {} is unsupported/unimplemented".format(command))
 			
 			if method is not None:
-				q.put(method(*params))
+				retv = method(*params)
+				qs.put(None if retv is enricher else retv)
+			else:
+				qs.put(True)
 		except BaseException as e:
-			q.put(e)
+			qs.put(e)
 
 def _multiprocess_wrapper(enricher_class,*args):
-	eq = multiprocessing.Queue()
+	eqs = multiprocessing.Queue()
+	eqr = multiprocessing.Queue()
+	
 	ep = multiprocessing.Process(
+		daemon=True,
+		name=enricher_class.__name__,
 		target=_multiprocess_target,
-		args=(eq,enricher_class,*args)
+		args=(eqs,eqr,enricher_class,*args)
 	)
 	ep.start()
 	
-	return (ep,eq)
+	initialization_state = eqr.get()
+	# If it could not be initialized, kick out!
+	if isinstance(initialization_state,BaseException):
+		raise initialization_state
+	
+	return (ep,eqs,eqr)
 
 
 class MetaEnricher(SkeletonPubEnricher):
@@ -110,12 +123,13 @@ class MetaEnricher(SkeletonPubEnricher):
 			if enricher_class:
 				# Each value is an instance of AbstractPubEnricher
 				#enrichers[enricher_name] = enricher_class(cache,prefix,config,debug)
-				ep, eq = _multiprocess_wrapper(enricher_class,cache,prefix,config,debug)
-				enrichers_pool[enricher_name] = (ep,eq,enricher_name)
+				ep, eqs, eqr = _multiprocess_wrapper(enricher_class,cache,prefix,config,debug)
+				
+				enrichers_pool[enricher_name] = (ep,eqs,eqr,enricher_name)
 		
 		# And last, the meta-enricher itself
 		meta_prefix = prefix + '_' + section_name  if prefix else section_name
-		meta_prefix += '_' + '-'.join(enrichers.keys()) + '_'
+		meta_prefix += '_' + '-'.join(enrichers_pool.keys()) + '_'
 		
 		# And the meta-cache
 		if type(cache) is str:
@@ -135,7 +149,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		exc = []
 		for eptuple in self.enrichers_pool.values():
-			retval = eptuple[1].get()
+			retval = eptuple[2].get()
 			
 			if isinstance(retval,BaseException):
 				exc.append(retval)
@@ -154,7 +168,7 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		for eptuple in self.enrichers_pool.values():
 			# Ignore exceptions, as it should happen in __exit__ handlers
-			retval = eptuple[1].get()
+			retval = eptuple[2].get()
 		
 		return self
 	
@@ -306,17 +320,17 @@ class MetaEnricher(SkeletonPubEnricher):
 	def queryPubIdsBatch(self,query_ids:List[Dict[str,str]]) -> List[Dict[str,Any]]:
 		# Spawning the work among the jobs
 		params = [query_ids]
-		for ep, eq, enricher_name in self.enrichers_pool.values():
+		for ep, eqs, eqr, enricher_name in self.enrichers_pool.values():
 			# We need the queue to request the results
-			eptuple[1].put(('cachedQueryPubIds',params))
+			eqs.put(('cachedQueryPubIds',params))
 		
 		# Now, we gather the work of all threaded enrichers
 		merging_list = []
 		exc = []
-		for ep, eq, enricher_name  in self.enrichers_pool.values():
+		for ep, eqs, eqr, enricher_name  in self.enrichers_pool.values():
 			# wait for it
 			# The result (or the exception) is in the queue
-			gathered_pairs = eq.get()
+			gathered_pairs = eqr.get()
 			
 			# Kicking up the exception, so it is managed elsewhere
 			if isinstance(gathered_pairs, BaseException):
@@ -515,9 +529,9 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		# Joining all the threads
 		exc = []
-		for ep, eq, enricher_name in eptuples:
+		for ep, eqs, eqr, enricher_name in eptuples:
 			# The result (or the exception) is in the queue
-			possible_exception = eq.get()
+			possible_exception = eqr.get()
 			
 			# Kicking up the exception, so it is managed elsewhere
 			if isinstance(possible_exception, BaseException):
