@@ -106,6 +106,11 @@ class WikidataEnricher(AbstractPubEnricher):
 						# and some corner 0 seconds cases have happened
 						retrysecs = float(retrysecs) + 0.5
 						retrymsg = "code {}".format(he.code)
+				elif he.code == 504:
+					retrymsg = "code {}".format(he.code)
+					
+					# Using a backoff time of 2 seconds when 500 or 502 errors are hit
+					retrysecs = 2 + 2**retries
 			
 			retries += 1
 			if (retrysecs is not None) and (retries <= self.max_retries):
