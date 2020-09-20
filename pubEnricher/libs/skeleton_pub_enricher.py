@@ -939,7 +939,9 @@ class SkeletonPubEnricher(ABC):
 					del unique_to_reconcile_slice
 			else:
 				unique_to_ref_populate.extend(unique_to_reconcile)
-				print("DEBUG: Last Pop {}".format(len(unique_to_ref_populate)),file=sys.stderr)
+				if self._debug:
+					print("DEBUG: Last Pop {}".format(len(unique_to_ref_populate)),file=sys.stderr)
+					sys.stderr.flush()
 			
 			# The ones to get only references
 			for start in range(0,len(unique_to_ref_populate),self.step_size):
@@ -963,10 +965,11 @@ class SkeletonPubEnricher(ABC):
 			else:
 				break
 		
-		print("DEBUG: Saved {} publications".format(pub_counter),file=sys.stderr)
-		sys.stderr.flush()
+		if self._debug:
+			print("DEBUG: Saved {} publications".format(pub_counter),file=sys.stderr)
+			sys.stderr.flush()
 		
-#		print("DEBUG: Residuals {} {} {} {} {}".format(get_size(saved_pubs),get_size(saved_comb),get_size(saved_comb_arr),get_size(query_refs),get_size(query_pubs)),file=sys.stderr)
+#			print("DEBUG: Residuals {} {} {} {} {}".format(get_size(saved_pubs),get_size(saved_comb),get_size(saved_comb_arr),get_size(query_refs),get_size(query_pubs)),file=sys.stderr)
 		
 		# Last, save the manifest file
 		manifest_file = os.path.join(results_path,'manifest.json')
