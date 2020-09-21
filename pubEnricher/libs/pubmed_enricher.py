@@ -196,9 +196,19 @@ class PubmedEnricher(AbstractPubEnricher):
 			
 			# Queries with retries
 			converterReq = request.Request(self.PUB_ID_CONVERTER_URL,data=converter_url_data.encode('utf-8'))
-			raw_id_mappings = self.retriable_full_http_read(converterReq,debug_url = debug_converter_url)
 			
-			id_mappings = self.jd.decode(raw_id_mappings.decode('utf-8'))
+			retries = 0
+			while retries <= self.max_retries:
+				raw_id_mappings = self.retriable_full_http_read(converterReq,debug_url = debug_converter_url)
+				
+				try:
+					id_mappings = self.jd.decode(raw_id_mappings.decode('utf-8'))
+				except json.decoder.JSONDecoder as jde:
+					retries += 1
+					retrymsg = 'PubMed JSON decoding error'
+					if self._debug:
+						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_id_mappings),file=sys.stderr)
+						sys.stderr.flush()
 			
 			# Avoiding to hit the server too fast
 			time.sleep(self.request_delay)
