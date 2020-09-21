@@ -79,7 +79,7 @@ class MetaEnricherException(Exception):
 	def __str__(self):
 		message, excpairs = self.args
 		
-		for enricher , trace  in expairs:
+		for enricher , trace  in excpairs:
 			message += "\n\nEnricher {}. Stack trace:\n{}".format(enricher,trace)
 		
 		return message 
