@@ -203,6 +203,7 @@ class PubmedEnricher(AbstractPubEnricher):
 				
 				try:
 					id_mappings = self.jd.decode(raw_id_mappings.decode('utf-8'))
+					break
 				except json.decoder.JSONDecoder as jde:
 					retries += 1
 					retrymsg = 'PubMed JSON decoding error'
