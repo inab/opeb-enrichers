@@ -3,11 +3,11 @@
 
 import os
 import datetime
-import shelve
 from typing import Tuple, List, Dict, Any, NewType, Iterator
 
 from . import pub_common
 from .pub_common import Timestamps
+from .doi_cache import DOIChecker
 
 # Alias types declaration
 Citation = NewType('Citation',Dict[str,Any])
@@ -41,10 +41,15 @@ class PubDBCache(object):
 	
 	OLDEST_CACHE = datetime.timedelta(days=CACHE_DAYS)
 
-	def __init__(self,enricher_name:str, cache_dir:str=".", prefix:str=None):
+	def __init__(self,enricher_name:str, cache_dir:str=".", prefix:str=None,doi_checker:DOIChecker=None):
 		# The enricher name, used as default for all the queries
 		self.enricher_name = enricher_name
 		self.cache_dir = cache_dir
+		
+		if doi_checker is None:
+			doi_checker = DOIChecker(cache_dir)
+		
+		self.doi_checker = doi_checker
 		
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)

@@ -1,10 +1,6 @@
 #!/usr/bin/python
 
-import sys
-import os
-import json
 import configparser
-import copy
 
 from abc import abstractmethod
 
@@ -12,22 +8,21 @@ from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .skeleton_pub_enricher import SkeletonPubEnricher
 from .pub_cache import PubDBCache
-
-from . import pub_common
+from .doi_cache import DOIChecker
 
 class AbstractPubEnricher(SkeletonPubEnricher):
 	DEFAULT_REQUEST_DELAY = 0.25
 	
 	@overload
-	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
 	@overload
-	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
-	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
-		super().__init__(cache,prefix,config,debug)
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
+		super().__init__(cache,prefix,config,debug,doi_checker)
 		
 		# The section name is the symbolic name given to this class
 		section_name = self.Name()

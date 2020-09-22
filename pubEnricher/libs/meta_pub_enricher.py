@@ -14,6 +14,7 @@ import traceback
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .pub_cache import PubDBCache
+from .doi_cache import DOIChecker
 from .skeleton_pub_enricher import SkeletonPubEnricher
 from .europepmc_enricher import EuropePMCEnricher
 from .pubmed_enricher import PubmedEnricher
@@ -87,7 +88,7 @@ class MetaEnricherException(Exception):
 class MetaEnricher(SkeletonPubEnricher):
 	RECOGNIZED_BACKENDS = [ EuropePMCEnricher, PubmedEnricher, WikidataEnricher ]
 	RECOGNIZED_BACKENDS_HASH = OrderedDict( ( (backend.Name(),backend) for backend in RECOGNIZED_BACKENDS ) )
-	ATTR_BLACKSET = {
+	ATTR_BANSET = {
 		'id',
 		'source',
 		'enricher',
@@ -106,17 +107,28 @@ class MetaEnricher(SkeletonPubEnricher):
 	}
 	
 	@overload
-	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
 	@overload
-	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
-	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
+		
+		if type(cache) is str:
+			cache_dir = cache
+		else:
+			cache_dir = cache.cache_dir
+		
+		if isinstance(cache,PubDBCache):
+			# Try using same checker instance everywhere
+			doi_checker = cache.doi_checker
+		elif doi_checker is None:
+			doi_checker = DOIChecker(cache_dir)
 		
 		# The section name is the symbolic name given to this class
 		section_name = self.Name()
@@ -132,7 +144,7 @@ class MetaEnricher(SkeletonPubEnricher):
 			if enricher_class:
 				# Each value is an instance of AbstractPubEnricher
 				#enrichers[enricher_name] = enricher_class(cache,prefix,config,debug)
-				ep, eqs, eqr = _multiprocess_wrapper(enricher_class,cache,prefix,config,debug)
+				ep, eqs, eqr = _multiprocess_wrapper(enricher_class,cache_dir,prefix,config,debug,doi_checker)
 				
 				enrichers_pool[enricher_name] = (ep,eqs,eqr,enricher_name)
 		
@@ -142,11 +154,11 @@ class MetaEnricher(SkeletonPubEnricher):
 		
 		# And the meta-cache
 		if type(cache) is str:
-			pubC = PubDBCache(section_name,cache_dir = cache,prefix=meta_prefix)
+			pubC = PubDBCache(section_name,cache_dir = cache_dir,prefix=meta_prefix,doi_checker=doi_checker)
 		else:
 			pubC = cache
 		
-		super().__init__(pubC,meta_prefix,config,debug)
+		super().__init__(pubC,meta_prefix,config,debug,doi_checker)
 		
 		self.enrichers_pool = enrichers_pool
 	
@@ -224,7 +236,7 @@ class MetaEnricher(SkeletonPubEnricher):
 					for key,val in base_found_pub.items():
 						# Should we skip specific fields?
 						# This gives a chance to initialize an unknown field
-						if (key in self.ATTR_BLACKSET) or (val is None):
+						if (key in self.ATTR_BANSET) or (val is None):
 							continue
 						
 						# TODO: conflict detection, when a source missets an identifier

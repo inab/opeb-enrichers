@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from typing import overload, Tuple, List, Dict, Any, Iterator
 
 from .pub_cache import PubDBCache
+from .doi_cache import DOIChecker
 
 from . import pub_common
 
@@ -60,25 +61,34 @@ class SkeletonPubEnricher(ABC):
 	DEFAULT_MAX_RETRIES = 5
 	
 	@overload
-	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
 	@overload
-	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
-	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		# The section name is the symbolic name given to this class
 		section_name = self.Name()
+		
+		if isinstance(cache,PubDBCache):
+			# Try using same checker instance everywhere
+			self.cache_dir = cache.cache_dir
+			doi_checker = cache.doi_checker
+		elif doi_checker is None:
+			self.cache_dir = cache
+			doi_checker = DOIChecker(self.cache_dir)
+		
+		self.doi_checker = doi_checker
+		
 		if type(cache) is str:
 			cache_prefix = prefix + '_' + section_name  if prefix else section_name
 			cache_prefix += '_'
 			
-			self.cache_dir = cache
-			self.pubC = PubDBCache(section_name,cache_dir = self.cache_dir,prefix=cache_prefix)
+			self.pubC = PubDBCache(section_name,cache_dir = self.cache_dir,prefix=cache_prefix,doi_checker=doi_checker)
 		else:
 			self.pubC = cache
-			self.cache_dir = cache.cache_dir
 		
 		# Load at least a config parser
 		self.config = config if config else configparser.ConfigParser()

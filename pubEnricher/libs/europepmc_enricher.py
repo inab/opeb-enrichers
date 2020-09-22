@@ -16,6 +16,7 @@ from typing import overload, Tuple, List, Dict, Any, Iterator
 from .abstract_pub_enricher import AbstractPubEnricher
 
 from .pub_cache import PubDBCache
+from .doi_cache import DOIChecker
 
 from . import pub_common
 
@@ -23,19 +24,19 @@ class EuropePMCEnricher(AbstractPubEnricher):
 	DEFAULT_CITREF_PAGESIZE=100
 	
 	@overload
-	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:str=".",prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
 	@overload
-	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache:PubDBCache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		...
 	
-	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False):
+	def __init__(self,cache,prefix:str=None,config:configparser.ConfigParser=None,debug:bool=False,doi_checker:DOIChecker=None):
 		#self.debug_cache_dir = os.path.join(cache_dir,'debug')
 		#os.makedirs(os.path.abspath(self.debug_cache_dir),exist_ok=True)
 		#self._debug_count = 0
 		
-		super().__init__(cache,prefix,config,debug)
+		super().__init__(cache,prefix,config,debug,doi_checker)
 		
 		# The section name is the symbolic name given to this class
 		section_name = self.Name()
