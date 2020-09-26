@@ -21,9 +21,6 @@ def print_debug_url(module,sourceURL):
 
 import re
 
-def doi2curie(doi_id):
-	return str(doi_id) if doi_id.startswith('doi:') else 'doi:'+doi_id
-
 def pmid2curie(pubmed_id):
 	return 'pmid:'+str(pubmed_id)
 
@@ -50,22 +47,6 @@ def denormalize_pmcid(pmc_id):
 def pmcid2curie(pmc_id):
 	pmc_id_norm = normalize_pmcid(pmc_id)
 	return 'pmc:'+pmc_id_norm
-
-DOI_PATTERN = re.compile('^doi:\s*(.*)',re.I)
-
-def normalize_doi(doi_id):
-	found_pat = DOI_PATTERN.search(doi_id)
-	if found_pat:
-		# It is already a CURI
-		doi_id = found_pat.group(1)
-	elif doi_id.startswith('http'):
-		# It is an URL
-		parsed_doi_id = parse.urlparse(doi_id)
-		if parsed_doi_id.netloc.endswith('doi.org'):
-			# Removing the initial slash
-			doi_id = parsed_doi_id.path[1:]
-		
-	return doi_id.upper()
 
 CITATIONS_KEYS = ('citations','citation_count')
 REFERENCES_KEYS =  ('references','reference_count')

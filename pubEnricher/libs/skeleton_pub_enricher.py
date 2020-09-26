@@ -204,7 +204,7 @@ class SkeletonPubEnricher(ABC):
 			
 			doi_id = query.get('doi')
 			if doi_id is not None:
-				doi_id_norm = pub_common.normalize_doi(doi_id)
+				doi_id_norm = DOIChecker.normalize_doi(doi_id)
 				if not _prefetchCaches(doi_id_norm):
 					doi_set_id = (doi_id_norm,'doi')
 					set_query_ids.add(doi_set_id)
@@ -277,7 +277,7 @@ class SkeletonPubEnricher(ABC):
 						
 						doi_id = mapping.get('doi')
 						if doi_id is not None:
-							doi_id_norm = pub_common.normalize_doi(doi_id)
+							doi_id_norm = DOIChecker.normalize_doi(doi_id)
 							d2e.setdefault(doi_id_norm,{})[source_id] = mapping
 						
 						pmc_id = mapping.get('pmcid')
@@ -307,7 +307,7 @@ class SkeletonPubEnricher(ABC):
 				
 				doi_id = entry_pub.get('doi')
 				if doi_id is not None:
-					doi_id_norm = pub_common.normalize_doi(doi_id)
+					doi_id_norm = DOIChecker.normalize_doi(doi_id)
 					doi_set_id = (doi_id_norm,'doi')
 					if doi_set_id not in set_query_ids and doi_id_norm not in d2e and not _updateCaches(doi_id_norm):
 						set_query_ids.add(doi_set_id)
@@ -347,7 +347,7 @@ class SkeletonPubEnricher(ABC):
 					
 					doi_id = mapping.get('doi')
 					if doi_id is not None:
-						doi_id_norm = pub_common.normalize_doi(doi_id)
+						doi_id_norm = DOIChecker.normalize_doi(doi_id)
 						d2e.setdefault(doi_id_norm,{})[source_id] = mapping
 					
 					pubmed_pairs.append(mapping)
@@ -380,9 +380,9 @@ class SkeletonPubEnricher(ABC):
 				
 				doi_id = entry_pub.get('doi')
 				if doi_id is not None:
-					curie_id = pub_common.doi2curie(doi_id)
+					curie_id = DOIChecker.doi2curie(doi_id)
 					initial_curie_ids.append(curie_id)
-					doi_id_norm = pub_common.normalize_doi(doi_id)
+					doi_id_norm = DOIChecker.normalize_doi(doi_id)
 					if doi_id_norm in d2e:
 						results.append(d2e[doi_id_norm])
 					else:
@@ -423,7 +423,7 @@ class SkeletonPubEnricher(ABC):
 						
 						doi_id = new_winner.get('doi')
 						if doi_id is not None:
-							curie_id = pub_common.doi2curie(doi_id)
+							curie_id = DOIChecker.doi2curie(doi_id)
 							curie_ids.append(curie_id)
 						
 						pmc_id = new_winner.get('pmcid')

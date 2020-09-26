@@ -251,9 +251,9 @@ class MetaEnricher(SkeletonPubEnricher):
 			
 			doi_id = merged_pub.get('doi')
 			if doi_id is not None:
-				curie_id = pub_common.doi2curie(doi_id)
+				curie_id = DOIChecker.doi2curie(doi_id)
 				initial_curie_ids.append(curie_id)
-				doi_id_norm = pub_common.normalize_doi(doi_id)
+				doi_id_norm = DOIChecker.normalize_doi(doi_id)
 				putative_ids.append(doi_id_norm)
 			
 			pmc_id = merged_pub.get('pmcid')
@@ -318,7 +318,7 @@ class MetaEnricher(SkeletonPubEnricher):
 				
 				doi_id = merging_elem.get('doi')
 				if doi_id is not None:
-					doi_id_norm = pub_common.normalize_doi(doi_id)
+					doi_id_norm = DOIChecker.normalize_doi(doi_id)
 					if eId is None:
 						if doi_id_norm in i2r:
 							eId = i2r[doi_id_norm]
@@ -411,7 +411,7 @@ class MetaEnricher(SkeletonPubEnricher):
 				
 				doi_id = partial_mapping.get('doi')
 				if doi_id is not None:
-					doi_id_norm = pub_common.normalize_doi(doi_id)
+					doi_id_norm = DOIChecker.normalize_doi(doi_id)
 					i2e.setdefault(doi_id_norm,[]).append(iPartial)
 		
 		# Update cache with a new search
@@ -431,7 +431,7 @@ class MetaEnricher(SkeletonPubEnricher):
 				
 				doi_id = rescuedPartial.get('doi')
 				if doi_id is not None:
-					doi_id_norm = pub_common.normalize_doi(doi_id)
+					doi_id_norm = DOIChecker.normalize_doi(doi_id)
 					destPlaces.extend(i2e.get(doi_id_norm,[]))
 				
 				# Only the distinct ones

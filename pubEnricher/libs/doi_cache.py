@@ -85,10 +85,44 @@ CREATE INDEX IF NOT EXISTS doi_check_doi ON doi_check(doi COLLATE NOCASE)
 		self.conn.close()
 	
 	
-	def sync(self) -> None:
-		# This method has become a no-op
-		pass
+	DOI_PATTERN = re.compile('^doi:\s*(.*)',re.I)
 	
+	@classmethod
+	def normalize_doi(cls,doi_id):
+		"""
+		If the method returns None, it means the input
+		is not a valid DOI
+		"""
+		found_pat = cls.DOI_PATTERN.search(doi_id)
+		if found_pat:
+			# It is already a CURI
+			doi_id = found_pat.group(1)
+		elif doi_id.startswith('http'):
+			# It is an URL
+			parsed_doi_id = parse.urlparse(doi_id)
+			if parsed_doi_id.netloc.endswith('doi.org'):
+				# Removing the initial slash
+				doi_id = parsed_doi_id.path[1:]
+		
+		return doi_id.upper()
+	
+	@classmethod
+	def doi2curie(doi_id):
+		return str(doi_id) if doi_id.startswith('doi:') else 'doi:'+doi_id
+	
+	def check_normalize_doi(self,doi_id):
+		"""
+		If the method returns None, it means the input
+		is not a valid DOI
+		"""
+		
+		# First, normalize it
+		doi_id_norm = self.normalize_doi(doi_id)
+		
+		doi_id_alt = doi_id_norm[:-1]  if doi_id_norm[-1] == '.'  else  doi_id_norm+'.'
+		
+		
+		
 	def getRawCachedResolutions_TL(self,doi_list:Iterator[DOIId]) -> Iterator[Tuple[datetime.datetime,DOIHandle]]:
 		"""
 			This method does not invalidate the cache
