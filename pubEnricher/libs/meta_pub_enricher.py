@@ -164,8 +164,9 @@ class MetaEnricher(SkeletonPubEnricher):
 	
 	def __del__(self):
 		# Try terminating subordinated processes
-		for eptuple in self.enrichers_pool.values():
-			eptuple[0].terminate()
+		if hasattr(self,'enrichers_pool'):
+			for eptuple in self.enrichers_pool.values():
+				eptuple[0].terminate()
 		
 		self.enrichers_pool = {}
 	
