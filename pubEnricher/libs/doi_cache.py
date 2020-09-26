@@ -16,6 +16,8 @@ import json
 import sqlite3
 import zlib
 
+import re
+
 
 class DOIChecker(object):
 	"""
