@@ -109,7 +109,7 @@ CREATE INDEX IF NOT EXISTS doi_check_doi ON doi_check(doi COLLATE NOCASE)
 		return doi_id.upper()
 	
 	@classmethod
-	def doi2curie(doi_id):
+	def doi2curie(cls,doi_id):
 		return str(doi_id) if doi_id.startswith('doi:') else 'doi:'+doi_id
 	
 	def check_normalize_doi(self,doi_id):
