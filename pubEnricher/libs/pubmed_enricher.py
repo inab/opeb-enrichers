@@ -83,12 +83,22 @@ class PubmedEnricher(AbstractPubEnricher):
 			
 			# Queries with retries
 			entriesReq = request.Request(self.PUB_ID_SUMMARY_URL,data=summary_url_data.encode('utf-8'))
-			raw_pubmed_mappings = self.retriable_full_http_read(entriesReq,debug_url=debug_summary_url)
-			
-			pubmed_mappings = self.jd.decode(raw_pubmed_mappings.decode('utf-8'))
-			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
+			retries = 0
+			while retries <= self.max_retries:
+				raw_pubmed_mappings = self.retriable_full_http_read(entriesReq,debug_url=debug_summary_url)
+				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
+				
+				try:
+					pubmed_mappings = self.jd.decode(raw_pubmed_mappings.decode('utf-8'))
+					break
+				except json.decoder.JSONDecodeError as jde:
+					retries += 1
+					retrymsg = 'PubMed mappings JSON decoding error'
+					if self._debug:
+						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_pubmed_mappings),file=sys.stderr)
+						sys.stderr.flush()
 			
 			results = pubmed_mappings.get('result')
 			if results is not None:
@@ -202,18 +212,19 @@ class PubmedEnricher(AbstractPubEnricher):
 			while retries <= self.max_retries:
 				raw_id_mappings = self.retriable_full_http_read(converterReq,debug_url = debug_converter_url)
 				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
+				
 				try:
 					id_mappings = self.jd.decode(raw_id_mappings.decode('utf-8'))
 					break
 				except json.decoder.JSONDecodeError as jde:
 					retries += 1
-					retrymsg = 'PubMed JSON decoding error'
+					retrymsg = 'PubMed raw id mappings JSON decoding error'
 					if self._debug:
 						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_id_mappings),file=sys.stderr)
 						sys.stderr.flush()
 			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
 			
 			# We record the unpaired DOIs
 			eresult = id_mappings.get('esearchresult')
@@ -289,12 +300,22 @@ class PubmedEnricher(AbstractPubEnricher):
 			
 			# Queries with retries
 			elinksReq = request.Request(self.ELINKS_URL,data=elink_url_data.encode('utf-8'))
-			raw_json_citation_refs = self.retriable_full_http_read(elinksReq,debug_url=debug_elink_url)
+			retries = 0
+			while retries <= self.max_retries:
+				raw_json_citation_refs = self.retriable_full_http_read(elinksReq,debug_url=debug_elink_url)
+				
+				# Avoiding to hit the server too fast
+				time.sleep(self.request_delay)
 			
-			raw_json_citations = self.jd.decode(raw_json_citation_refs.decode('utf-8'))
-			
-			# Avoiding to hit the server too fast
-			time.sleep(self.request_delay)
+				try:
+					raw_json_citations = self.jd.decode(raw_json_citation_refs.decode('utf-8'))
+					break
+				except json.decoder.JSONDecodeError as jde:
+					retries += 1
+					retrymsg = 'PubMed citations JSON decoding error'
+					if self._debug:
+						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_json_citation_refs),file=sys.stderr)
+						sys.stderr.flush()
 			
 			linksets = raw_json_citations.get('linksets')
 			if linksets is not None:
