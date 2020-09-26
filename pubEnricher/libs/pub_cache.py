@@ -564,7 +564,7 @@ INSERT INTO pub(enricher,id,source,payload,last_fetched) VALUES(:enricher,:id,:s
 				pmc_id = mapping.get('pmcid')
 				pmc_id_norm = pub_common.normalize_pmcid(pmc_id)  if pmc_id else None
 				doi_id = mapping.get('doi')
-				doi_id_norm = DOIChecker.normalize_doi(doi_id)  if doi_id else None
+				doi_id_norm = self.doi_checker.normalize_doi(doi_id)  if doi_id else None
 				
 				if old_mapping_timestamp is not None:
 					old_pubmed_id = old_mapping.get('pmid')
@@ -574,7 +574,7 @@ INSERT INTO pub(enricher,id,source,payload,last_fetched) VALUES(:enricher,:id,:s
 					old_pubmed_id = None
 					old_doi_id = None
 					old_pmc_id = None
-				old_doi_id_norm = DOIChecker.normalize_doi(old_doi_id)  if old_doi_id else None
+				old_doi_id_norm = self.doi_checker.normalize_doi(old_doi_id)  if old_doi_id else None
 				old_pmc_id_norm = pub_common.normalize_pmcid(old_pmc_id)  if old_pmc_id else None
 				
 				removable_ids = []
