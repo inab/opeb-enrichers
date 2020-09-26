@@ -76,7 +76,9 @@ class SkeletonPubEnricher(ABC):
 			# Try using same checker instance everywhere
 			self.cache_dir = cache.cache_dir
 			doi_checker = cache.doi_checker
-		elif doi_checker is None:
+		elif doi_checker is not None:
+			self.cache_dir = doi_checker.cache_dir
+		else:
 			self.cache_dir = cache
 			doi_checker = DOIChecker(self.cache_dir)
 		
