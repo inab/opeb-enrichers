@@ -22,6 +22,16 @@ from .wikidata_enricher import WikidataEnricher
 
 from . import pub_common
 
+
+class MetaEnricherException(Exception):
+	def __str__(self):
+		message, excpairs = self.args
+		
+		for enricher , trace  in excpairs:
+			message += "\n\nEnricher {}. Stack trace:\n{}".format(enricher,trace)
+		
+		return message
+
 def _multiprocess_target(qr, qs, enricher_class, *args):
 	# We are saving either the result or any fired exception
 	enricher = None
@@ -34,6 +44,7 @@ def _multiprocess_target(qr, qs, enricher_class, *args):
 	
 	while enricher is not None:
 		command, params = qr.get()
+		retv = None
 		try:
 			if command == 'cachedQueryPubIds':
 				method = enricher.cachedQueryPubIds
@@ -51,12 +62,16 @@ def _multiprocess_target(qr, qs, enricher_class, *args):
 			
 			if method is not None:
 				retv = method(*params)
-				qs.put(None if retv is enricher else retv)
+				if retv is enricher:
+					retv = None
 			else:
-				qs.put(True)
+				retv = True
 		except BaseException as e:
-			qs.put(Exception(traceback.format_exc()))
-
+			# It seems it is not possible to pickle exceptions
+			retv = traceback.format_exc(e)
+		finally:
+			qs.put(retv)
+	
 def _multiprocess_wrapper(enricher_class,*args):
 	eqs = multiprocessing.Queue()
 	eqr = multiprocessing.Queue()
@@ -71,19 +86,10 @@ def _multiprocess_wrapper(enricher_class,*args):
 	
 	initialization_state = eqr.get()
 	# If it could not be initialized, kick out!
-	if isinstance(initialization_state,BaseException):
-		raise initialization_state
+	if isinstance(initialization_state,str):
+		raise MetaEnricherException('enricher initialization',[(enricher_class.__name__,initialization_state)])
 	
 	return (ep,eqs,eqr)
-
-class MetaEnricherException(Exception):
-	def __str__(self):
-		message, excpairs = self.args
-		
-		for enricher , trace  in excpairs:
-			message += "\n\nEnricher {}. Stack trace:\n{}".format(enricher,trace)
-		
-		return message 
 
 class MetaEnricher(SkeletonPubEnricher):
 	RECOGNIZED_BACKENDS = [ EuropePMCEnricher, PubmedEnricher, WikidataEnricher ]
@@ -180,10 +186,9 @@ class MetaEnricher(SkeletonPubEnricher):
 		for eptuple in self.enrichers_pool.values():
 			retval = eptuple[2].get()
 			
-			if isinstance(retval,BaseException):
-				exc.append((eptuple[3],retval.args[0]))
+			if isinstance(retval,str):
+				exc.append((eptuple[3],retval))
 		
-		# TODO: do not ignore other exceptions
 		if len(exc) > 0:
 			self.__del__()
 			raise MetaEnricherException("__enter__ nested exception",exc)
@@ -363,8 +368,8 @@ class MetaEnricher(SkeletonPubEnricher):
 			gathered_pairs = eqr.get()
 			
 			# Kicking up the exception, so it is managed elsewhere
-			if isinstance(gathered_pairs, BaseException):
-				exc.append((enricher_name,gathered_pairs.args[0]))
+			if isinstance(gathered_pairs, str):
+				exc.append((enricher_name,gathered_pairs))
 				continue
 			
 			# Labelling the results, so we know the enricher
@@ -373,8 +378,6 @@ class MetaEnricher(SkeletonPubEnricher):
 			
 			merging_list.extend(gathered_pairs)
 		
-		# TODO: raise something telling about all the exceptions,
-		# not only the first one
 		if len(exc) > 0:
 			self.__del__()
 			raise MetaEnricherException('queryPubIdsBatch nested exception',exc)
@@ -565,8 +568,8 @@ class MetaEnricher(SkeletonPubEnricher):
 			possible_exception = eqr.get()
 			
 			# Kicking up the exception, so it is managed elsewhere
-			if isinstance(possible_exception, BaseException):
-				exc.append((enricher_name,possible_exception.args[0]))
+			if isinstance(possible_exception, str):
+				exc.append((enricher_name,possible_exception))
 				continue
 			
 			# As the method enriches the results in place
@@ -578,8 +581,6 @@ class MetaEnricher(SkeletonPubEnricher):
 				
 				linear_pubs[linear_id]['base_pubs'][i_base_pub] = new_base_pub
 		
-		# TODO: raise something telling about all the exceptions,
-		# not only the first one
 		if len(exc) > 0:
 			self.__del__()
 			raise MetaEnricherException('queryCitRefsBatch nested exception',exc)
