@@ -15,6 +15,7 @@ DOIHandle = NewType('DOIHandle',Dict[str,Any])
 import json
 import sqlite3
 import zlib
+from urllib import parse
 
 import re
 
