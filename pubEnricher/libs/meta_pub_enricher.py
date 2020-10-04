@@ -40,7 +40,7 @@ def _multiprocess_target(qr, qs, enricher_class, *args):
 		qs.put(True)
 	except BaseException as e:
 		enricher = None
-		qs.put(Exception(traceback.format_exc()))
+		qs.put(traceback.format_exc())
 	
 	while enricher is not None:
 		command, params = qr.get()
@@ -68,7 +68,7 @@ def _multiprocess_target(qr, qs, enricher_class, *args):
 				retv = True
 		except BaseException as e:
 			# It seems it is not possible to pickle exceptions
-			retv = traceback.format_exc(e)
+			retv = traceback.format_exc()
 		finally:
 			qs.put(retv)
 	
