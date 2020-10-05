@@ -95,11 +95,14 @@ if __name__ == "__main__":
 		# Step 2: reconcile the DOI <-> PubMed id of the entries
 		
 		try:
-			print("* Output format: {} Path: {}".format(results_format, results_path))
+			print("[{}] Output format: {} Path: {}".format(datetime.datetime.now().isoformat(),results_format, results_path))
+			print("[{}] Number of tools to query about: {}".format(datetime.datetime.now().isoformat(),len(fetchedEntries)))
 			sys.stdout.flush()
 			pub.reconcilePubIds(fetchedEntries, results_path=results_path, results_format=results_format, verbosityLevel=verbosity_level)
+			print("[{}] Finished!".format(datetime.datetime.now().isoformat()))
+			sys.stdout.flush()
 		except Exception as anyEx:
-			print("ERROR: Something went wrong", file=sys.stderr)
+			print("[{}] ERROR: Something went wrong".format(datetime.datetime.now().isoformat()), file=sys.stderr)
 			print(anyEx, file=sys.stderr)
 			import traceback
 			traceback.print_exc(file=sys.stderr)
