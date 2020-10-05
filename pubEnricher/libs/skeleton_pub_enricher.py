@@ -1024,6 +1024,7 @@ class SkeletonPubEnricher(ABC):
 			else:
 				jsonOutput = None
 			
+			saved_results = []
 			for start in range(0,len(entries),self.step_size):
 				stop = start+self.step_size
 				# This unlinks the input from the output
@@ -1041,12 +1042,22 @@ class SkeletonPubEnricher(ABC):
 				elif results_format == "multiple":
 					filename_prefix = 'entry_' if verbosityLevel == 0  else 'fullentry_'
 					for idx, entry in enumerate(entries_slice):
-						dest_file = os.path.join(results_path,filename_prefix+str(start+idx)+'.json')
+						rel_dest_file = filename_prefix+str(start+idx)+'.json'
+						saved_results.append({
+							'@id': entry['@id'],
+							'file': rel_dest_file,
+						})
+						dest_file = os.path.join(results_path,rel_dest_file)
 						with open(dest_file,mode="w",encoding="utf-8") as outentry:
 							outentry.write(self.je.encode(entry))
 			
 			if jsonOutput is not None:
 				print(']',file=jsonOutput)
 				jsonOutput.close()
+			else:
+				# Last, save the manifest file
+				manifest_file = os.path.join(results_path,'manifest.json')
+				with open(manifest_file,mode="w",encoding="utf-8") as manifile:
+					manifile.write(self.je.encode({'@timestamp': datetime.datetime.now().isoformat(), 'results': saved_results}))
 		
 		return entries
