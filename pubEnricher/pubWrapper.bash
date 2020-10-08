@@ -16,6 +16,7 @@ esac
 
 if [ $# -eq 2 ] ; then
 	workDir="$1"
+	parentCacheDir="$(dirname "$workDir")"
 	toolsFile="$2"
 	toolsFileXZ="${toolsFile}.xz"
 
@@ -35,9 +36,9 @@ if [ $# -eq 2 ] ; then
 	if [ ! -d "$workDir" ] ; then
 		mkdir -p "$workDir"
 		source "${SCRIPTDIR}"/.py3env/bin/activate
-		python "${SCRIPTDIR}"/pubEnricher.py -b meta -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
+		python "${SCRIPTDIR}"/pubEnricher.py -d -b meta -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ" "${parentCacheDir}"/pubCacheDir
 	fi
-	echo "${SHELL}" "${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
+	"${SHELL}" "${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
 else
 	echo "ERROR: This script needs two parameters: a workdir and the destination path to the input tools file" 1>&2
 fi

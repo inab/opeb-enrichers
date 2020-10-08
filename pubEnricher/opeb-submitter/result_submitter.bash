@@ -38,7 +38,26 @@ doProcessing () {
 			if [ -f "$file" ] ; then
 				files+=( "$file" )
 			elif [ -d "$file" ] ; then
-				dirs+=( "$file" )
+				local manif="${file}/manifest.json"
+				if [ -f "${manif}" ] ; then
+					for rfile in $(jq -r '.results[] | .file ' "${manif}") ; do
+						local gfile
+						case rfile in
+							/*)
+								# Do nothing (R)
+								gfile="${rfile}"
+								;;
+							*)
+								gfile="${file}/${rfile}"
+								;;
+						esac
+						files+=( "${gfile}" )
+					done	
+				else
+					#dirs+=( "$file" )
+					eecho "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+"
+					exit 1
+				fi
 			else
 				discarded+=( "$file" )
 			fi
@@ -59,6 +78,9 @@ doProcessing () {
 		jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/enricher2opeb.jq "${files[@]}" | \
 		curl -v -X "${OPEB_METHOD}" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
 		"${OPEB_METRICS_BASE}" -d "@-"
+	else
+		eecho "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+"
+		exit 1
 	fi
 	
 	# Last, the directories
@@ -96,5 +118,5 @@ if [ $# -gt 1 ]; then
 		eecho "ERROR: The config file must declare the OPEB_METRICS_USER and OPEB_METRICS_PASS variables, which are the credentials to OpenEBench"
 	fi
 else
-	eecho "Usage: $0 {config_file} {json_result or dir}+"
+	eecho "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+"
 fi
