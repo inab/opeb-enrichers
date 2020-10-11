@@ -36,7 +36,7 @@ if [ $# -eq 2 ] ; then
 		mkdir -p "$workDir"
 		perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
 	fi
-	"${SHELL}" "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
+	/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
 else
 	echo "ERROR: This script needs two parameters: a workdir and the input tools file" 1>&2
 fi
