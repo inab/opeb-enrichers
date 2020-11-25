@@ -33,12 +33,21 @@ if [ $# -eq 2 ] ; then
 		rm -rf "${workDir}"
 	fi
 	# But not the working directory
+	retval=0
 	if [ ! -d "$workDir" ] ; then
 		mkdir -p "$workDir"
 		source "${SCRIPTDIR}"/.py3env/bin/activate
+		set +e
 		python "${SCRIPTDIR}"/pubEnricher.py -d -b meta -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ" "${parentCacheDir}"/pubCacheDir
+		retval=$?
+		set -e
 	fi
-	"${SHELL}" "${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
+	if [ "$retval" = 0 ] ; then
+		"${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
+	else
+		echo "INFO: Data submission has been suspended, as the enriching process did not finish properly" 1>&2
+	fi
+	
 else
 	echo "ERROR: This script needs two parameters: a workdir and the destination path to the input tools file" 1>&2
 fi

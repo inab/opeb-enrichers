@@ -106,4 +106,4 @@ if __name__ == "__main__":
 			print(anyEx, file=sys.stderr)
 			import traceback
 			traceback.print_exc(file=sys.stderr)
-			raise anyEx
+			sys.exit(10)
