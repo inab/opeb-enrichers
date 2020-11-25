@@ -653,10 +653,13 @@ class SkeletonPubEnricher(ABC):
 					retrymsg = "code {}".format(e.code)
 			except URLError as e:
 				retryexc = e
-				if 'handshake operation timed out' in str(e.reason):
+				retryreason = str(e.reason)
+				if 'handshake operation timed out' in retryreason:
 					retrymsg = "handshake timeout"
-				elif 'is unreachable' in str(e.reason):
+				elif 'is unreachable' in retryreason:
 					retrymsg = "network is unreachable"
+				elif 'failure in name resolution' in retryreason:
+					retrymsg = "failure in name resolution"
 				
 			except http.client.RemoteDisconnected as e:
 				retrymsg = "remote disconnect"
