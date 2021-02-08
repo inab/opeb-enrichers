@@ -1,7 +1,5 @@
 #!/bin/bash
 
-exec > /tmp/prueba.txt 2>&1
-
 set -e
 SCRIPTDIR="$(dirname "$0")"
 
@@ -19,6 +17,8 @@ if [ $# -eq 2 ] ; then
 	toolsFile="$2"
 	toolsFileXZ="${toolsFile}.xz"
 
+	exec >> "$(dirname "${workDir}")/startlog.txt" 2>&1
+	echo "[$(date -Is)] Launching pubEnricher"
 	if [ ! -f "$toolsFileXZ" ] ; then
 		if [ ! -f "$toolsFile" ] ; then
 			mkdir -p "$(dirname "$toolsFile")"
@@ -34,6 +34,7 @@ if [ $# -eq 2 ] ; then
 	# But not the working directory
 	if [ ! -d "$workDir" ] ; then
 		mkdir -p "$workDir"
+		exec >> "${workDir}/log.txt" 2>&1
 		perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
 	fi
 	/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
