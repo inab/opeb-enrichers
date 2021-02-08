@@ -1,7 +1,5 @@
 #!/bin/bash
 
-exec > /tmp/prueba-pub.txt 2>&1
-
 set -e
 SCRIPTDIR="$(dirname "$0")"
 
@@ -19,6 +17,9 @@ if [ $# -eq 2 ] ; then
 	parentCacheDir="$(dirname "$workDir")"
 	toolsFile="$2"
 	toolsFileXZ="${toolsFile}.xz"
+	# This is needed to gather the logs
+	exec >> "${parentCacheDir}/startlog.txt" 2>&1
+	echo "[$(date -Is)] Launching pubEnricher"
 
 	if [ ! -f "$toolsFileXZ" ] ; then
 		if [ ! -f "$toolsFile" ] ; then
@@ -36,6 +37,7 @@ if [ $# -eq 2 ] ; then
 	retval=0
 	if [ ! -d "$workDir" ] ; then
 		mkdir -p "$workDir"
+		exec > "${workDir}/log.txt" 2>&1
 		source "${SCRIPTDIR}"/.py3env/bin/activate
 		set +e
 		python "${SCRIPTDIR}"/pubEnricher.py -d -b meta -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ" "${parentCacheDir}"/pubCacheDir
