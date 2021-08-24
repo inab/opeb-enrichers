@@ -314,7 +314,7 @@ class PubmedEnricher(AbstractPubEnricher):
 					retries += 1
 					retrymsg = 'PubMed citations JSON decoding error'
 					if self._debug:
-						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_json_citation_refs),file=sys.stderr)
+						print("\tRetry {0}, due {1}. Dump:\n{2}".format(retries,retrymsg,raw_json_citation_refs),file=sys.stderr)
 						sys.stderr.flush()
 			
 			linksets = raw_json_citations.get('linksets')
