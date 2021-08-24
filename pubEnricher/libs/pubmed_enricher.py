@@ -97,7 +97,7 @@ class PubmedEnricher(AbstractPubEnricher):
 					retries += 1
 					retrymsg = 'PubMed mappings JSON decoding error'
 					if self._debug:
-						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_pubmed_mappings),file=sys.stderr)
+						print("\tRetry {0}, due {1}. Dump:\n{2}".format(retries,retrymsg,raw_pubmed_mappings),file=sys.stderr)
 						sys.stderr.flush()
 			
 			results = pubmed_mappings.get('result')
@@ -222,7 +222,7 @@ class PubmedEnricher(AbstractPubEnricher):
 					retries += 1
 					retrymsg = 'PubMed raw id mappings JSON decoding error'
 					if self._debug:
-						print("\tRetry {0}, due {1}. Dump:\n{}".format(retries,retrymsg,raw_id_mappings),file=sys.stderr)
+						print("\tRetry {0}, due {1}. Dump:\n{2}".format(retries,retrymsg,raw_id_mappings),file=sys.stderr)
 						sys.stderr.flush()
 			
 			
