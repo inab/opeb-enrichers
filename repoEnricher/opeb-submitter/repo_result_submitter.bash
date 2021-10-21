@@ -11,6 +11,8 @@ ALAMBIQUE_METHOD=PUT
 OPEB_METRICS_BASE=https://${OPEB_HOST}/monitor/metrics/
 OPEB_ALAMBIQUE_BASE=https://${ALAMBIQUE_HOST}/monitor/alambique/
 
+batchSize=1000
+
 set -e
 
 scriptdir="$(dirname "$0")"
@@ -57,9 +59,14 @@ if [ $# -gt 1 ]; then
 	OPEB_ALAMBIQUE_BASE="${OPEB_ALAMBIQUE_BASE:-https://${ALAMBIQUE_HOST}/monitor/alambique/}"
 
 	if [ -n "$OPEB_METRICS_USER" -a -n "$OPEB_METRICS_PASS" ]; then
-		jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/repo_enricher2opeb.jq "${ifiles[@]}" | \
-		curl -v -X "$OPEB_METHOD" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
-		"${OPEB_METRICS_BASE}" -d "@-"
+		eecho "NUM FILES TO PROCESS: ${#ifiles[@]}"
+		for pos in $(seq 0 "${batchSize}" "$((${#ifiles[@]} - 1))") ; do
+			eecho $'\t'"BATCH $pos"
+			eecho
+			jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/repo_enricher2opeb.jq "${ifiles[@]:${pos}:${batchSize}}" | \
+			curl -v -X "$OPEB_METHOD" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
+			"${OPEB_METRICS_BASE}" -d "@-"
+		done
 	else
 		eecho "ERROR: The config file must declare the OPEB_METRICS_USER and OPEB_METRICS_PASS variables, which are the credentials to OpenEBench"
 	fi
