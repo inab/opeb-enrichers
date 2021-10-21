@@ -11,6 +11,8 @@ ALAMBIQUE_METHOD=PUT
 OPEB_METRICS_BASE=https://${OPEB_HOST}/monitor/metrics/
 OPEB_ALAMBIQUE_BASE=https://${ALAMBIQUE_HOST}/monitor/alambique/
 
+batchSize=1000
+
 set -e
 
 scriptdir="$(dirname "$0")"
@@ -74,10 +76,13 @@ doProcessing () {
 	
 	if [ ${#files[@]} -gt 0 ] ; then
 		eecho "NUM FILES TO PROCESS: ${#files[@]}"
-		eecho
-		jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/enricher2opeb.jq "${files[@]}" | \
-		curl -v -X "${OPEB_METHOD}" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
-		"${OPEB_METRICS_BASE}" -d "@-"
+		for pos in $(seq 0 "${batchSize}" "$((${#files[@]} - 1))") ; do
+			eecho $'\t'"BATCH $pos"
+			eecho
+			jq --slurp --arg host "$OPEB_HOST" -f "$scriptdir"/enricher2opeb.jq "${files[@]:${pos}:${batchSize}}" | \
+			curl -v -X "${OPEB_METHOD}" -u "${OPEB_METRICS_USER}":"${OPEB_METRICS_PASS}" -H 'Content-Type: application/json' \
+			"${OPEB_METRICS_BASE}" -d "@-"
+		done
 	else
 		eecho "Usage: $0 {config_file} {json_result_dir_with_manifest|json_files}+"
 		exit 1
