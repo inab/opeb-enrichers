@@ -12,6 +12,11 @@ case "${SCRIPTDIR}" in
 		;;
 esac
 
+# This is needed to select the right hosts
+cronSubmitterConfig="${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini
+source "${cronSubmitterConfig}"
+OPEB_HOST="${OPEB_HOST:-openebench.bsc.es}"
+
 if [ $# -eq 2 ] ; then
 	workDir="$1"
 	toolsFile="$2"
@@ -22,7 +27,7 @@ if [ $# -eq 2 ] ; then
 	if [ ! -f "$toolsFileXZ" ] ; then
 		if [ ! -f "$toolsFile" ] ; then
 			mkdir -p "$(dirname "$toolsFile")"
-			wget -nv -O "$toolsFile" https://openebench.bsc.es/monitor/rest/search
+			wget -nv -O "$toolsFile" https://${OPEB_HOST}/monitor/rest/search
 		fi
 		xz -9 -T 0 "${toolsFile}"
 	fi
@@ -37,7 +42,7 @@ if [ $# -eq 2 ] ; then
 		exec >> "${workDir}/log.txt" 2>&1
 		perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
 	fi
-	/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
+	/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${cronSubmitterConfig}" "$workDir"
 else
 	echo "ERROR: This script needs two parameters: a workdir and the input tools file" 1>&2
 fi
