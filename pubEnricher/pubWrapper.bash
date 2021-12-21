@@ -12,6 +12,11 @@ case "${SCRIPTDIR}" in
 		;;
 esac
 
+# This is needed to select the right hosts
+cronSubmitterConfig="${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini
+source "${cronSubmitterConfig}"
+OPEB_HOST="${OPEB_HOST:-openebench.bsc.es}"
+
 if [ $# -eq 2 ] ; then
 	workDir="$1"
 	parentCacheDir="$(dirname "$workDir")"
@@ -24,7 +29,7 @@ if [ $# -eq 2 ] ; then
 	if [ ! -f "$toolsFileXZ" ] ; then
 		if [ ! -f "$toolsFile" ] ; then
 			mkdir -p "$(dirname "$toolsFile")"
-			wget -nv -O "$toolsFile" https://openebench.bsc.es/monitor/rest/search
+			wget -nv -O "$toolsFile" https://${OPEB_HOST}/monitor/rest/search
 		fi
 		xz -9 -T 0 "${toolsFile}"
 	fi
@@ -45,7 +50,7 @@ if [ $# -eq 2 ] ; then
 		set -e
 	fi
 	if [ "$retval" = 0 ] ; then
-		"${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini "$workDir"
+		"${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${cronSubmitterConfig}" "$workDir"
 	else
 		echo "INFO: Data submission has been suspended, as the enriching process did not finish properly" 1>&2
 	fi
