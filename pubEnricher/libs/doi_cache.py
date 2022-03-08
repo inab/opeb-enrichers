@@ -39,6 +39,10 @@ class DOIChecker(object):
 	
 	DOI_HANDLE_ENDPOINT='https://doi.org/api/handles/'
 	
+	DOI_METADATA_ENDPOINT='https://doi.org/'
+	DOI_METADATA_ACCEPT='application/vnd.citationstyles.csl+json, application/rdf+xml'
+	DOI_METADATA_AGENT='Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:59.0) Gecko/20100101 Firefox/82.0'
+	
 	DEFAULT_CHECK_DB_FILE="DOIcheck_CACHE.db"
 	
 	def __init__(self,cache_dir:str="."):
