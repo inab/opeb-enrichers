@@ -19,7 +19,7 @@ def _linkExtract(p_entry: Mapping, p_features: Mapping) -> List:
 	entry_links = list()
 	
 	for mkey in p_features.keys():
-		if mkey in p_features:
+		if mkey in p_entry:
 			s_features = p_features.get(mkey)
 			if s_features is not None:
 				s_entry = p_entry.get(mkey)
@@ -30,7 +30,7 @@ def _linkExtract(p_entry: Mapping, p_features: Mapping) -> List:
 					if isinstance(it, str) and len(it) > 0:
 						entry_links.append(it)
 			elif isinstance(p_entry.get(mkey), str) and len(p_entry[mkey]) > 0:
-				entry_links.append(mkey)
+				entry_links.append(p_entry[mkey])
 	
 	return entry_links
 
