@@ -3,6 +3,7 @@
 import argparse
 from collections.abc import Iterable
 import configparser
+import datetime
 import json
 import logging
 import os
@@ -55,6 +56,10 @@ TabKeyOrder = [
 
 LOGGING_FORMAT = '%(asctime)-15s - [%(levelname)s] %(message)s'
 DEBUG_LOGGING_FORMAT = '%(asctime)-15s - [%(name)s %(funcName)s %(lineno)d][%(levelname)s] %(message)s'
+
+NoRepoRelPath = 'no_repo'
+MatchesRelPath = 'with_repo'
+DirMaxSize = 1000
 
 #############
 # Main code #
@@ -123,11 +128,16 @@ if __name__ == "__main__":
 		
 		if isinstance(p_queries, Iterable):
 			jsonManifestFile = None
-			manifest = list()
+			manifestRepoEntries = list()
+			manifestNoRepoEntries = list()
 			TAB = None
 			
+			jsonNoRepoDir = None
+			startTimestamp = datetime.datetime.now().isoformat()
 			if jsondir is not None:
-				os.makedirs(args.jsondir, exist_ok=True)
+				jsonNoRepoDir = os.path.join(jsondir, NoRepoRelPath)
+				os.makedirs(jsonNoRepoDir, exist_ok=True)
+				
 				jsonManifestFile = os.path.join(jsondir, 'manifest.json')
 				print(f"* JSON output directory set to {jsondir} . Manifest file is {jsonManifestFile}")
 			
@@ -145,6 +155,9 @@ if __name__ == "__main__":
 			
 			printedHeader = False
 			numTool = 0
+			numRepoTool = 0
+			numNoRepoTool = 0
+			relDirCreatedSet = set()
 			for entry_id, entry_links, query_l in p_queries:
 				for numRes, query in enumerate(query_l):
 					# What we know, just now
@@ -192,19 +205,58 @@ if __name__ == "__main__":
 					
 					# The assembled answer
 					if jsondir is not None:
-						partialJsonout = 'tool-' + str(numTool) + '_' + str(numRes) + '.json'
-						manifest.append({
+						subRel = '{0:06d}'.format((numTool // DirMaxSize) * DirMaxSize)
+						partialJsonout = f'tool-{numTool:06d}_{numRes}.json'
+						
+						hasRepo = len(fullans['repos']) > 0
+						if hasRepo:
+							relPrePath = MatchesRelPath
+							manifestEntries = manifestRepoEntries
+						else:
+							relPrePath = NoRepoRelPath
+							manifestEntries = manifestNoRepoEntries
+						
+						relDir = os.path.join(relPrePath, subRel)
+						absDir = os.path.join(jsondir, relDir)
+						
+						nowTimestamp = datetime.datetime.now().isoformat()
+						manifestEntries.append({
 							'@id': fullans['@id'],
-							'file': partialJsonout
+							'@timestamp': nowTimestamp,
+							'file': os.path.join(relDir, partialJsonout),
+							'found_repo': hasRepo,
 						})
-						jsonout = os.path.join(jsondir, partialJsonout)
+						jsonout = os.path.join(absDir, partialJsonout)
 						try:
+							# The check is here to avoid superfluous
+							# calls to os.makedirs 
+							if relDir not in relDirCreatedSet:
+								os.makedirs(absDir, exist_ok=True)
+								relDirCreatedSet.add(relDir)
 							with open(jsonout, mode="w", encoding="utf-8") as J:
 								jsonFilterStreamEncode(fullans, fp=J, sort_keys=True, indent=4)
 						except Exception as e:
+							logging.exception(f"ERROR: Unable to create file {jsonout}")
 							import pprint
-							pprint.pprint(fullans)
+							logging.error(pprint.pformat(fullans))
 							raise Exception(f"* ERROR: Unable to create file {jsonout}") from e
+						
+						try:
+							# Updating the manifest
+							manifest = {
+								'@started': startTimestamp,
+								'@timestamp': nowTimestamp,
+								'entries': {
+									'with_repo': manifestRepoEntries,
+									'no_repo': manifestNoRepoEntries,
+								},
+								'finished': False
+							}
+						
+							with open(jsonManifestFile, mode='w', encoding='utf-8') as M:
+								jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
+						except Exception as e:
+							logging.exception(f"ERROR: Unable to write manifest {jsonManifestFile}")
 			
 				# Another more
 				numTool += 1
@@ -218,10 +270,19 @@ if __name__ == "__main__":
 			# Writing the manifest
 			if jsonManifestFile is not None:
 				try:
+					manifest = {
+						'@started': startTimestamp,
+						'@timestamp': datetime.datetime.now().isoformat(),
+						'entries': {
+							'with_repo': manifestRepoEntries,
+							'no_repo': manifestNoRepoEntries,
+						},
+						'finished': True
+					}
 					with open(jsonManifestFile, mode='w', encoding='utf-8') as M:
-						json.dump(manifest, fp=M, sort_keys=True, indent=4)
+						jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
 				except Exception as e:
-					raise Exception(f"ERROR: Unable to write manifest {jsonManifestFile}") from e
+					logging.exception(f"ERROR: Unable to write manifest {jsonManifestFile}")
 		else:
 			print("No queries extracted from input (either OpenEBench or list of repos). Do you have internet access?", file=sys.stderr);
 		
