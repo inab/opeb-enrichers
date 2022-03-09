@@ -7,6 +7,7 @@ import datetime
 import json
 import logging
 import os
+import shutil
 import sys
 import traceback
 
@@ -127,6 +128,7 @@ if __name__ == "__main__":
 			p_queries = rEnricher.analyzeOpenEBenchEntries(opEb)
 		
 		if isinstance(p_queries, Iterable):
+			jsonManifestFileTemp = None
 			jsonManifestFile = None
 			manifestRepoEntries = list()
 			manifestNoRepoEntries = list()
@@ -139,6 +141,7 @@ if __name__ == "__main__":
 				os.makedirs(jsonNoRepoDir, exist_ok=True)
 				
 				jsonManifestFile = os.path.join(jsondir, 'manifest.json')
+				jsonManifestFileTemp = jsonManifestFile + '.temp'
 				print(f"* JSON output directory set to {jsondir} . Manifest file is {jsonManifestFile}")
 			
 			if tabfile is not None:
@@ -253,8 +256,9 @@ if __name__ == "__main__":
 								'finished': False
 							}
 						
-							with open(jsonManifestFile, mode='w', encoding='utf-8') as M:
+							with open(jsonManifestFileTemp, mode='w', encoding='utf-8') as M:
 								jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
+							shutil.move(jsonManifestFileTemp, jsonManifestFile)
 						except Exception as e:
 							logging.exception(f"ERROR: Unable to write manifest {jsonManifestFile}")
 			
@@ -279,8 +283,9 @@ if __name__ == "__main__":
 						},
 						'finished': True
 					}
-					with open(jsonManifestFile, mode='w', encoding='utf-8') as M:
+					with open(jsonManifestFileTemp, mode='w', encoding='utf-8') as M:
 						jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
+					shutil.move(jsonManifestFileTemp, jsonManifestFile)
 				except Exception as e:
 					logging.exception(f"ERROR: Unable to write manifest {jsonManifestFile}")
 		else:
