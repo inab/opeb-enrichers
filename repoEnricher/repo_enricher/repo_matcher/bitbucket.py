@@ -229,6 +229,20 @@ class BitBucketRepoMatcher(AbstractRepoMatcher):
 						for cloneP in cloneA:
 							cloneP_href = cloneP.get('href')
 							if (cloneP_href is not None) and cloneP.get('name') == 'https':
+								# We have to remove the user name from URI
+								# in case we have been issuing authenticated queries
+								cP = urllib.parse.urlparse(cloneP_href)
+								cP_usermark = cP.netloc.find('@')
+								if cP_usermark != -1:
+									cP_netloc = cP.netloc[cP_usermark+1:]
+									cloneP_href = urllib.parse.urlunparse((
+										cP[0],
+										cP_netloc,
+										cP[2],
+										cP[3],
+										cP[4],
+										cP[5]
+									))
 								ans['vcs_uri'] = cloneP_href
 								# sourcecode
 								ans['source_uri'] = cloneP_href
