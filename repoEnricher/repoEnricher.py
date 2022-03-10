@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 
 import argparse
+import bz2
 from collections.abc import Iterable
 import configparser
 import datetime
+import gzip
 import json
 import logging
+import lzma
 import os
 import shutil
 import sys
+import time
 import traceback
 
 from repo_enricher.common import jsonFilterStreamEncode, jsonFilterEncode
@@ -62,6 +66,17 @@ NoRepoRelPath = 'no_repo'
 MatchesRelPath = 'with_repo'
 DirMaxSize = 1000
 
+ManifestUpdateSeconds = 30.0
+NoneCompressionMethod = 'none'
+DefaultCompressionMethod = NoneCompressionMethod
+StoreOpeners = {
+	NoneCompressionMethod: open,
+	'gz': gzip.open,
+	'bz2': bz2.open,
+	'xz': lzma.open,
+}
+
+
 #############
 # Main code #
 #############
@@ -81,7 +96,8 @@ if __name__ == "__main__":
 	
 	parser.add_argument('-C', '--config', dest='config_filename', help="Config file to pass setup parameters to the different enrichers")
 	parser.add_argument('-f', '--file', dest='tabfile', help="Destination file (tabular file)")
-	parser.add_argument('-D', '--directory', dest='jsondir', help="Destination directory (json files)")
+	parser.add_argument('-D', '--directory', dest='jsondir', help="Destination directory (json files + manifest)")
+	parser.add_argument('--compression-method', dest='compression_method', help='Store the contents using this method', choices=StoreOpeners.keys(), default=DefaultCompressionMethod)
 	
 	args = parser.parse_args()
 	
@@ -114,6 +130,12 @@ if __name__ == "__main__":
 			traceback.print_exc()
 			sys.exit(1)
 	
+	compression_method = args.compression_method
+	_opener = StoreOpeners.get(compression_method)
+	if compression_method != NoneCompressionMethod:
+		ext = '.' + compression_method
+	else:
+		ext = None
 	jsondir = args.jsondir
 	tabfile = args.tabfile
 	if (jsondir is not None) or (tabfile is not None):
@@ -135,19 +157,26 @@ if __name__ == "__main__":
 			TAB = None
 			
 			jsonNoRepoDir = None
-			startTimestamp = datetime.datetime.now().isoformat()
+			# We need to keep this in order to write
+			# unfinished manifests "not so often"
+			prevTime = time.time()
+			startTimestamp = datetime.datetime.fromtimestamp(prevTime).isoformat()
 			if jsondir is not None:
 				jsonNoRepoDir = os.path.join(jsondir, NoRepoRelPath)
 				os.makedirs(jsonNoRepoDir, exist_ok=True)
 				
 				jsonManifestFile = os.path.join(jsondir, 'manifest.json')
+				if ext is not None:
+					jsonManifestFile += ext
 				jsonManifestFileTemp = jsonManifestFile + '.temp'
 				print(f"* JSON output directory set to {jsondir} . Manifest file is {jsonManifestFile}")
 			
 			if tabfile is not None:
+				if ext is not None:
+					tabfile += ext
 				print(f"* Tabular output file set to {tabfile}")
 				try:
-					TAB = open(tabfile, mode="w", encoding="utf-8")
+					TAB = _opener(tabfile, mode="wt", encoding="utf-8")
 				except Exception as e:
 					raise Exception(f"ERROR: Unable to create {tabfile} (see backtrace)") from e
 			elif jsondir is None:
@@ -210,6 +239,8 @@ if __name__ == "__main__":
 					if jsondir is not None:
 						subRel = '{0:06d}'.format((numTool // DirMaxSize) * DirMaxSize)
 						partialJsonout = f'tool-{numTool:06d}_{numRes}.json'
+						if ext is not None:
+							partialJsonout += ext
 						
 						hasRepo = len(fullans['repos']) > 0
 						if hasRepo:
@@ -222,7 +253,8 @@ if __name__ == "__main__":
 						relDir = os.path.join(relPrePath, subRel)
 						absDir = os.path.join(jsondir, relDir)
 						
-						nowTimestamp = datetime.datetime.now().isoformat()
+						nowTime = time.time()
+						nowTimestamp = datetime.datetime.fromtimestamp(nowTime).isoformat()
 						manifestEntries.append({
 							'@id': fullans['@id'],
 							'@timestamp': nowTimestamp,
@@ -236,7 +268,7 @@ if __name__ == "__main__":
 							if relDir not in relDirCreatedSet:
 								os.makedirs(absDir, exist_ok=True)
 								relDirCreatedSet.add(relDir)
-							with open(jsonout, mode="w", encoding="utf-8") as J:
+							with _opener(jsonout, mode="wt", encoding="utf-8") as J:
 								jsonFilterStreamEncode(fullans, fp=J, sort_keys=True, indent=4)
 						except Exception as e:
 							logging.exception(f"ERROR: Unable to create file {jsonout}")
@@ -244,23 +276,28 @@ if __name__ == "__main__":
 							logging.error(pprint.pformat(fullans))
 							raise Exception(f"* ERROR: Unable to create file {jsonout}") from e
 						
-						try:
+						# Only update when we have something interesting
+						# to tell and it has past too much time
+						if hasRepo and (nowTime - prevTime) >= ManifestUpdateSeconds:
 							# Updating the manifest
-							manifest = {
-								'@started': startTimestamp,
-								'@timestamp': nowTimestamp,
-								'entries': {
-									'with_repo': manifestRepoEntries,
-									'no_repo': manifestNoRepoEntries,
-								},
-								'finished': False
-							}
-						
-							with open(jsonManifestFileTemp, mode='w', encoding='utf-8') as M:
-								jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
-							shutil.move(jsonManifestFileTemp, jsonManifestFile)
-						except Exception as e:
-							logging.exception(f"ERROR: Unable to write manifest {jsonManifestFile}")
+							try:
+								manifest = {
+									'@started': startTimestamp,
+									'@timestamp': nowTimestamp,
+									'compression': compression_method,
+									'entries': {
+										'with_repo': manifestRepoEntries,
+										'no_repo': manifestNoRepoEntries,
+									},
+									'finished': False
+								}
+							
+								with _opener(jsonManifestFileTemp, mode='wt', encoding='utf-8') as M:
+									jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
+								shutil.move(jsonManifestFileTemp, jsonManifestFile)
+							except Exception as e:
+								logging.exception(f"ERROR: Unable to write manifest {jsonManifestFile}")
+							prevTime = nowTime
 			
 				# Another more
 				numTool += 1
@@ -277,13 +314,14 @@ if __name__ == "__main__":
 					manifest = {
 						'@started': startTimestamp,
 						'@timestamp': datetime.datetime.now().isoformat(),
+						'compression': compression_method,
 						'entries': {
 							'with_repo': manifestRepoEntries,
 							'no_repo': manifestNoRepoEntries,
 						},
 						'finished': True
 					}
-					with open(jsonManifestFileTemp, mode='w', encoding='utf-8') as M:
+					with _opener(jsonManifestFileTemp, mode='wt', encoding='utf-8') as M:
 						jsonFilterStreamEncode(manifest, fp=M, sort_keys=True, indent=4)
 					shutil.move(jsonManifestFileTemp, jsonManifestFile)
 				except Exception as e:
