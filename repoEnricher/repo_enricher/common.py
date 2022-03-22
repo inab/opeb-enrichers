@@ -227,7 +227,8 @@ def load_with_datetime(pairs: Mapping[str, Any], tz: Optional[datetime.timezone]
 				if tz is not None:
 					dv = dv.astimezone(tz)
 				d[k] = dv
-			except ValueError:
+			except Exception as e:
+				# We are not translating the date, so continue
 				d[k] = v
 		else:
 			d[k] = v             
