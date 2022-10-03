@@ -17,12 +17,14 @@ cronSubmitterConfig="${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini
 source "${cronSubmitterConfig}"
 OPEB_HOST="${OPEB_HOST:-openebench.bsc.es}"
 
-if [ $# -eq 2 ] ; then
-	workDir="$1"
+if [ $# -eq 3 ] ; then
+	parentWorkDir="$1"
 	toolsFile="$2"
+	relWorkDir="$3"
+	workDir="$1/$3"
 	toolsFileXZ="${toolsFile}.xz"
 
-	exec >> "$(dirname "${workDir}")/startlog.txt" 2>&1
+	exec >> "${parentWorkDir}/startlog.txt" 2>&1
 	echo "[$(date -Is)] Launching pubEnricher"
 	if [ ! -f "$toolsFileXZ" ] ; then
 		if [ ! -f "$toolsFile" ] ; then
@@ -43,6 +45,10 @@ if [ $# -eq 2 ] ; then
 		perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
 	fi
 	/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${cronSubmitterConfig}" "$workDir"
+	# This is needed to keep a copy of the source along with the results
+	xz -c "$toolsFileXZ" > "${workDir}"/"$(basename "${toolsFile}")"
+	tar -C "${parentWorkDir}" -c -p -f - "${relWorkDir}" | xz -9 -T0 > "${parentWorkDir}"/"$(basename "$(dirname "$0")")"-"${relWorkDir}".tar.xz
+	rm -rf "${workDir}"
 else
-	echo "ERROR: This script needs two parameters: a workdir and the input tools file" 1>&2
+	echo "ERROR: This script needs three parameters: a parent workdir, the input tools file and a relative subdirectory within the parent workdir" 1>&2
 fi
