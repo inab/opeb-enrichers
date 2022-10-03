@@ -25,7 +25,7 @@ if [ $# -eq 3 ] ; then
 	toolsFileXZ="${toolsFile}.xz"
 
 	exec >> "${parentWorkDir}/startlog.txt" 2>&1
-	echo "[$(date -Is)] Launching pubEnricher"
+	echo "[$(date -Is)] Launching repoEnricher"
 	if [ ! -f "$toolsFileXZ" ] ; then
 		if [ ! -f "$toolsFile" ] ; then
 			mkdir -p "$(dirname "$toolsFile")"
@@ -39,16 +39,26 @@ if [ $# -eq 3 ] ; then
 		rm -rf "${workDir}"
 	fi
 	# But not the working directory
+	retval=0
 	if [ ! -d "$workDir" ] ; then
 		mkdir -p "$workDir"
 		exec >> "${workDir}/log.txt" 2>&1
-		perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
+		set +e
+		# perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
+		python "${SCRIPTDIR}"/repoEnricher.py -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
+		retval=$?
+		set -e
 	fi
-	/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${cronSubmitterConfig}" "$workDir"
-	# This is needed to keep a copy of the source along with the results
-	xz -c "$toolsFileXZ" > "${workDir}"/"$(basename "${toolsFile}")"
-	tar -C "${parentWorkDir}" -c -p -f - "${relWorkDir}" | xz -9 -T0 > "${parentWorkDir}"/"$(basename "$(dirname "$0")")"-"${relWorkDir}".tar.xz
-	rm -rf "${workDir}"
+	if [ "$retval" = 0 ] ; then
+		/bin/bash "${SCRIPTDIR}"/opeb-submitter/repo_result_submitter.bash "${cronSubmitterConfig}" "$workDir"
+		
+		# This is needed to keep a copy of the source along with the results
+		xz -c "$toolsFileXZ" > "${workDir}"/"$(basename "${toolsFile}")"
+		tar -C "${parentWorkDir}" -c -p -f - "${relWorkDir}" | xz -9 -c -T0 > "${parentWorkDir}"/"$(basename "$(dirname "$0")")"-"${relWorkDir}".tar.xz
+		rm -rf "${workDir}"
+	else
+		echo "INFO: Data submission has been suspended, as the enriching process did not finish properly" 1>&2
+	fi
 else
 	echo "ERROR: This script needs three parameters: a parent workdir, the input tools file and a relative subdirectory within the parent workdir" 1>&2
 fi

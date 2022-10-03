@@ -38,7 +38,8 @@ if [ $# -gt 1 ]; then
 	if [ -d  "$1" ] ; then
 		resdir="$1"
 		if [ -f "${resdir}/manifest.json" ] ; then
-			declare -a ifiles=( $(jq -r '.[] | .file ' "$resdir"/manifest.json ) )
+			# declare -a ifiles=( $(jq -r '.[] | .file ' "$resdir"/manifest.json ) )
+			declare -a ifiles=( $(jq -r '.entries.with_repo[] | .file ' "$resdir"/manifest.json ) )
 			# This is needed to resolve relative directories
 			cd "$resdir"
 		else

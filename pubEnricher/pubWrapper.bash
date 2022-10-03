@@ -17,10 +17,11 @@ cronSubmitterConfig="${SCRIPTDIR}"/opeb-submitter/cron-submitter.ini
 source "${cronSubmitterConfig}"
 OPEB_HOST="${OPEB_HOST:-openebench.bsc.es}"
 
-if [ $# -eq 2 ] ; then
-	workDir="$1"
-	parentCacheDir="$(dirname "$workDir")"
+if [ $# -eq 3 ] ; then
+	parentCacheDir="$1"
 	toolsFile="$2"
+	relWorkDir="$3"
+	workDir="$1/$3"
 	toolsFileXZ="${toolsFile}.xz"
 	# This is needed to gather the logs
 	exec >> "${parentCacheDir}/startlog.txt" 2>&1
@@ -51,10 +52,15 @@ if [ $# -eq 2 ] ; then
 	fi
 	if [ "$retval" = 0 ] ; then
 		"${SCRIPTDIR}"/opeb-submitter/result_submitter.bash "${cronSubmitterConfig}" "$workDir"
+		
+		# This is needed to keep a copy of the source along with the results
+		xz -c "$toolsFileXZ" > "${workDir}"/"$(basename "${toolsFile}")"
+		tar -C "${parentCacheDir}" -c -p -f - "${relWorkDir}" | xz -9 -c -T0 > "${parentCacheDir}"/"$(basename "$(dirname "$0")")"-"${relWorkDir}".tar.xz
+		rm -rf "${workDir}"
 	else
 		echo "INFO: Data submission has been suspended, as the enriching process did not finish properly" 1>&2
 	fi
 	
 else
-	echo "ERROR: This script needs two parameters: a workdir and the destination path to the input tools file" 1>&2
+	echo "ERROR: This script needs three parameters: a parent workdir, the input tools file and a relative subdirectory within the parent workdir" 1>&2
 fi
