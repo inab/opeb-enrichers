@@ -45,7 +45,7 @@ if [ $# -eq 3 ] ; then
 		exec >> "${workDir}/log.txt" 2>&1
 		set +e
 		# perl "${SCRIPTDIR}"/repoEnricher.pl -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
-		python "${SCRIPTDIR}"/repoEnricher.py -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
+		python3 "${SCRIPTDIR}"/repoEnricher.py -C "${SCRIPTDIR}"/cron-config.ini -D "$workDir" --use-opeb "$toolsFileXZ"
 		retval=$?
 		set -e
 	fi
